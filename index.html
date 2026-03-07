@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>地下偶像日历</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #fdf6f8; font-family: 'PingFang SC', 'Noto Sans SC', sans-serif; }
+  input, textarea, select, button { font-family: inherit; }
+  ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: #fce8ef; } ::-webkit-scrollbar-thumb { background: #f0a0bb; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+// ===== 正则解析：从微博文字直接提取信息，无需 AI =====
+function regexParseEvent(text) {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+
+  // ── 日期 ──
+  let date = "";
+  const d4 = text.match(/(\d{4})[.\/年](\d{1,2})[.\/月](\d{1,2})/);
+  const d2 = text.match(/(?<!\d)(\d{1,2})[.月\/](\d{1,2})[日号]?(?!\d)/);
+  if (d4) {
+    date = `${d4[1]}-${String(d4[2]).padStart(2,"0")}-${String(d4[3]).padStart(2,"0")}`;
+  } else if (d2) {
+    const mo = parseInt(d2[1]), dy = parseInt(d2[2]);
+    let y = currentYear;
+    if (new Date(y, mo-1, dy) < today) y++;
+    date = `${y}-${String(mo).padStart(2,"0")}-${String(dy).padStart(2,"0")}`;
+  }
+
+  // ── 时间（优先"演出时间"行，跳过特典/握手行）──
+  let time = "", endTime = "";
+  const showLine = text.match(/演出时间[：:]\s*(\d{1,2})[:\uff1a](\d{2})\s*[～~\-—]\s*(\d{1,2})[:\uff1a](\d{2})/);
+  if (showLine) {
+    time    = `${String(showLine[1]).padStart(2,"0")}:${showLine[2]}`;
+    endTime = `${String(showLine[3]).padStart(2,"0")}:${showLine[4]}`;
+  } else {
+    for (const line of text.split("\n")) {
+      if (/特典|握手|签名|cheki|チェキ/i.test(line)) continue;
+      const tm = line.match(/(\d{1,2})[:\uff1a](\d{2})\s*[～~\-—]\s*(\d{1,2})[:\uff1a](\d{2})/);
+      if (tm) {
+        time    = `${String(tm[1]).padStart(2,"0")}:${tm[2]}`;
+        endTime = `${String(tm[3]).padStart(2,"0")}:${tm[4]}`;
+        break;
+      }
+    }
+  }
+  if (!time) {
+    const sm = text.match(/(\d{1,2})[:\uff1a](\d{2})/);
+    if (sm) time = `${String(sm[1]).padStart(2,"0")}:${sm[2]}`;
+  }
+
+  // ── 场馆 ──
+  let venue = "";
+  const venuePatterns = [
+    /📍\s*(.+)/,
+    /🔴\s*(.+)/,
+    /地[点址场][：:]\s*(.+)/,
+    /(?:演出)?地点[：:]\s*(.+)/,
+  ];
+  for (const p of venuePatterns) {
+    const m = text.match(p);
+    if (m) { venue = m[1].split("\n")[0].trim(); break; }
+  }
+  if (!venue) {
+    for (const line of text.split("\n")) {
+      if (/LIVE|live house|现场|剧场|Theater|theater|Hall|hall|Studio|studio/i.test(line) && line.length < 60) {
+        venue = line.replace(/^[📍🔴●•·\s]+/, "").trim();
+        if (venue) break;
+      }
+    }
+  }
+
+  // ── 城市 ──
+  let city = "";
+  const cities = ["北京","上海","广州","深圳","成都","杭州","武汉","南京","西安","重庆","天津","苏州","青岛","长沙","厦门","福州","郑州","济南","合肥","宁波","沈阳","大连","哈尔滨","昆明","贵阳","南宁","海口","东莞","佛山","珠海","温州","南昌","长春","太原","石家庄","兰州","西宁","银川","呼和浩特","乌鲁木齐"];
+  for (const c of cities) { if (text.includes(c)) { city = c; break; } }
+
+  // ── 演出名称：取第一行，去除行首 emoji/符号，保留完整文字（含 Vol.N 等）──
+  let title = "";
+  for (const line of text.split("\n")) {
+    const clean = line.replace(/^[\s\u2600-\u27BF\uD83C\uD000-\uD83C\uDFFF\uD83D\uD000-\uD83D\uDFFF\uD83E\uD000-\uD83E\uDFFF\u20D0-\u20FF●•·#＃★☆◆◇■□▶▷→]+/g, "").trim();
+    if (clean.length < 3) continue;
+    if (/^(https?:|转发|评论|点赞|@|查看更多)/.test(clean)) continue;
+    // 跳过纯日期行（如 "2026.3.15（日）"）
+    if (/^\d{4}[.\/年]\d{1,2}[.\/月]\d{1,2}/.test(clean)) continue;
+    // 跳过纯时间行
+    if (/^\d{1,2}:\d{2}/.test(clean)) continue;
+    title = clean;
+    break;
+  }
+
+  // ── 团体名 ──
+  let group = "";
+  const gm = text.match(/(.{2,15}?)(?:一周年|周年|演唱会|巡演|Live Tour|idol live)/i);
+  if (gm) group = gm[1].replace(/^[\s\uD800-\uDFFF\u2600-\u27BF]+/, "").trim();
+
+  return { title, date, time, endTime, venue, city, group };
+}
+
+function regexParseBirthday(text) {
+  let name = "", birthday = "", group = "";
+
+  // ── 生日 ──
+  const bd4 = text.match(/(\d{4})[.\/年](\d{1,2})[.\/月](\d{1,2})/);
+  const bd2 = text.match(/(?<!\d)(\d{1,2})[月.\/](\d{1,2})[日号]?(?!\d)/);
+  if (bd4) {
+    birthday = `${bd4[1]}-${String(bd4[2]).padStart(2,"0")}-${String(bd4[3]).padStart(2,"0")}`;
+  } else if (bd2) {
+    birthday = `2000-${String(bd2[1]).padStart(2,"0")}-${String(bd2[2]).padStart(2,"0")}`;
+  }
+
+  // ── 姓名 ──
+  const namePatterns = [
+    /祝\s*(.{1,8}?)\s*(?:生日快乐|happy\s*birthday)/i,
+    /(.{1,8}?)(?:的)?(?:生日|birthday|诞生日)/i,
+    /^(.{2,8})$/m,
+  ];
+  for (const p of namePatterns) {
+    const m = text.match(p);
+    if (m) {
+      const c = m[1].replace(/^[\s\uD800-\uDFFF\u2600-\u27BF🎂🎉]+/, "").trim();
+      if (c.length >= 2 && c.length <= 8 && !/^\d/.test(c)) { name = c; break; }
+    }
+  }
+
+  // ── 团体 ──
+  const gm = text.match(/(?:来自|成员|所属)[：:\s]*(.{2,15}?)(?:\s|$)/);
+  if (gm) group = gm[1].trim();
+
+  return { name, birthday, group };
+}
+
+// ===== API 调用（部署到 Vercel 后生效，本地双击打开时跳过）=====
+const IS_DEPLOYED = location.protocol === "https:" && !location.hostname.includes("localhost");
+
+async function apiFetch(params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(`/api/weibo?${qs}`);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+// 通过微博帖子链接抓取文字
+function base62ToMid(b62) {
+  const chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let result = "";
+  for (let i = b62.length; i > 0; i -= 4) {
+    const seg = b62.slice(Math.max(0, i-4), i);
+    let num = 0;
+    for (const c of seg) { const idx = chars.indexOf(c); if (idx===-1) return null; num = num*62+idx; }
+    result = String(num).padStart(i===b62.length?1:7,"0") + result;
+  }
+  return result || null;
+}
+
+async function fetchPostText(url) {
+  const m = url.trim().match(/weibo\.com\/[^/?#]+\/([A-Za-z0-9]+)/);
+  if (!m) throw new Error("无法识别微博链接格式");
+  const rawId = m[1];
+  const mid = /^\d+$/.test(rawId) ? rawId : base62ToMid(rawId);
+  if (!mid) throw new Error("无法解析微博 ID");
+  const data = await apiFetch({ mid });
+  const post = data?.data;
+  if (!post) throw new Error("该微博无法访问，可能已删除");
+  const rawText = post.longText?.longTextContent || post.text || "";
+  return rawText
+    .replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"')
+    .trim();
+}
+
+// 通过账号主页链接抓取用户信息
+async function fetchUserInfo(url) {
+  const m = url.trim().match(/weibo\.com\/(?:u\/)?(\d+)/);
+  if (!m) throw new Error("无法识别微博账号链接，格式应为 weibo.com/u/数字ID");
+  const uid = m[1];
+  return await apiFetch({ uid }); // { name, description, avatar }
+}
+
+
+const MONTHS = ["一月","二月","三月","四月","五月","六月","七月","八月","九月","十月","十一月","十二月"];
+const DAYS = ["日","一","二","三","四","五","六"];
+const C = {
+  bg:"#fdf6f8", surface:"#fff0f4", card:"#fff5f8", border:"#f5c6d8",
+  accent:"#e8537a", gold:"#d4860a", coral:"#e8537a", teal:"#9b6ea8",
+  text:"#3d1a26", muted:"#b07a90",
+};
+const fmt = (y,m,d) => `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+const today = fmt(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+
+function loadLS(key, def) { try { return JSON.parse(localStorage.getItem(key) || "null") || def; } catch { return def; } }
+
+// ===== Main App =====
+function App() {
+  const [year, setYear]   = useState(new Date().getFullYear());
+  const [month, setMonth] = useState(new Date().getMonth());
+  const [events, setEvents]           = useState(() => loadLS("ic_events", []));
+  const [birthdays, setBirthdays]     = useState(() => loadLS("ic_birthdays", []));
+  const [anniversaries, setAnnivs]    = useState(() => loadLS("ic_anniversaries", []));
+  const [selDay, setSelDay]           = useState(null);
+  const [modal, setModal]             = useState(null);
+  const [weiboText, setWeiboText]     = useState("");
+  const [parseError, setParseError]   = useState("");
+  const [urlInput, setUrlInput]       = useState("");
+  const [urlFetching, setUrlFetching] = useState(false);
+  const [parsed, setParsed]           = useState(null); // parsed result from weibo
+  const [form, setForm]               = useState({});
+  const [editItem, setEditItem]       = useState(null);
+  const [editType, setEditType]       = useState(null);
+  const [transport, setTransport]     = useState(30);
+  const [viewMode, setViewMode]       = useState("calendar");
+  const [dupTarget, setDupTarget]     = useState(null);
+  const [importCount, setImportCount] = useState({});
+  const [myGroups, setMyGroups]       = useState(() => loadLS("ic_groups", []));
+  const [newGroup, setNewGroup]       = useState("");
+
+  useEffect(() => localStorage.setItem("ic_events", JSON.stringify(events)), [events]);
+  useEffect(() => localStorage.setItem("ic_birthdays", JSON.stringify(birthdays)), [birthdays]);
+  useEffect(() => localStorage.setItem("ic_anniversaries", JSON.stringify(anniversaries)), [anniversaries]);
+  useEffect(() => localStorage.setItem("ic_groups", JSON.stringify(myGroups)), [myGroups]);
+
+  // ── get items for a date ──
+  const itemsFor = useCallback((ds) => {
+    const out = [];
+    events.filter(e => e.date === ds).forEach(e => out.push({...e, _t:"event"}));
+    birthdays.forEach(b => {
+      if (!b.birthday) return;
+      const [,bm,bd] = b.birthday.split("-");
+      if (bm === ds.slice(5,7) && bd === ds.slice(8,10)) out.push({...b, _t:"birthday"});
+    });
+    anniversaries.forEach(a => {
+      const s = new Date(a.startDate), c = new Date(ds);
+      if (a.repeat === "yearly") {
+        const sm = String(s.getMonth()+1).padStart(2,"0"), sd2 = String(s.getDate()).padStart(2,"0");
+        if (sm === ds.slice(5,7) && sd2 === ds.slice(8,10)) {
+          const yrs = c.getFullYear() - s.getFullYear();
+          out.push({...a, _t:"anniversary", _years: yrs});
+        }
+      } else if (a.repeat === "monthly") {
+        if (String(s.getDate()).padStart(2,"0") === ds.slice(8,10)) {
+          const mo = (c.getFullYear()-s.getFullYear())*12 + c.getMonth()-s.getMonth();
+          if (mo >= 0) out.push({...a, _t:"anniversary", _months: mo});
+        }
+      } else if (a.repeat === "100days") {
+        const diff = Math.round((c-s)/86400000);
+        if (diff > 0 && diff % 100 === 0) out.push({...a, _t:"anniversary", _days: diff});
+      }
+    });
+    out.sort((a,b) => a._t==="event" && b._t==="event" ? (a.time||"").localeCompare(b.time||"") : 0);
+    return out;
+  }, [events, birthdays, anniversaries]);
+
+  const eventsWithTransport = useCallback((ds) => {
+    const evs = itemsFor(ds).filter(i => i._t==="event").sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+    const out = []; let last = null;
+    for (const ev of evs) {
+      if (last) out.push({_t:"transport", minutes: transport, from: last.venue, to: ev.venue});
+      out.push(ev); last = ev;
+    }
+    return out;
+  }, [itemsFor, transport]);
+
+  const stats = useCallback(() => {
+    const ye = events.filter(e => e.date?.startsWith(String(year)));
+    const ci = {}, ve = {};
+    ye.forEach(e => { if(e.city) ci[e.city]=(ci[e.city]||0)+1; if(e.venue) ve[e.venue]=(ve[e.venue]||0)+1; });
+    const tc = Object.entries(ci).sort((a,b)=>b[1]-a[1])[0];
+    const tv = Object.entries(ve).sort((a,b)=>b[1]-a[1])[0];
+    return { total: ye.length, topCity: tc?`${tc[0]}(${tc[1]}次)`:"暂无", topVenue: tv?`${tv[0]}(${tv[1]}次)`:"暂无", ci, ve };
+  }, [events, year]);
+
+  // ── nav ──
+  const prev = () => month===0 ? (setMonth(11), setYear(y=>y-1)) : setMonth(m=>m-1);
+  const next = () => month===11 ? (setMonth(0), setYear(y=>y+1)) : setMonth(m=>m+1);
+
+  // ── 解析：粘贴文字即识别，纯本地，无网络 ──
+  const handleParse = (type) => {
+    const raw = weiboText.trim();
+    if (!raw) return;
+    setParseError("");
+    const result = type === "event" ? regexParseEvent(raw) : regexParseBirthday(raw);
+    const hasInfo = type === "event" ? (result.title || result.date || result.venue) : (result.name || result.birthday);
+    if (!hasInfo) {
+      setParseError("未能识别出关键信息，请确认文字包含日期、场馆等内容");
+      return;
+    }
+    setParsed({ ...result, _type: type });
+    // 全部覆盖
+    if (type === "event") {
+      setForm({ title:result.title||"", date:result.date||"", time:result.time||"", endTime:result.endTime||"", venue:result.venue||"", city:result.city||"", group:result.group||"" });
+    } else {
+      setForm({ name:result.name||"", birthday:result.birthday||"", group:result.group||"" });
+    }
+  };
+
+  // ── 备份：把所有数据导出为 JSON 文件 ──
+  const exportData = () => {
+    const data = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      events, birthdays, anniversaries,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `idol-calendar-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ── 恢复：从 JSON 文件导入数据 ──
+  const importData = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.events && !data.birthdays && !data.anniversaries)
+          throw new Error("文件格式不正确");
+        const merge = (existing, incoming) => {
+          const ids = new Set(existing.map(x => x.id));
+          return [...existing, ...incoming.filter(x => !ids.has(x.id))];
+        };
+        if (data.events)       setEvents(p      => merge(p, data.events));
+        if (data.birthdays)    setBirthdays(p   => merge(p, data.birthdays));
+        if (data.anniversaries) setAnnivs(p     => merge(p, data.anniversaries));
+        setModal("import-done");
+        setImportCount({
+          events:       (data.events||[]).length,
+          birthdays:    (data.birthdays||[]).length,
+          anniversaries:(data.anniversaries||[]).length,
+        });
+      } catch(err) {
+        alert("导入失败：" + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ""; // 允许重复选同一文件
+  };
+
+  const resetParse = () => { setWeiboText(""); setUrlInput(""); setParsed(null); setForm({}); setParseError(""); };
+
+  // 通过账号链接抓取用户信息（部署后可用）
+  const handleUrlFetch = async (type) => {
+    const url = urlInput.trim();
+    if (!url) return;
+    if (!IS_DEPLOYED) {
+      setParseError("⚠️ 链接抓取功能需要部署后才能使用，本地打开时请复制文字到下方识别");
+      return;
+    }
+    setUrlFetching(true);
+    setParseError("");
+    try {
+      if (type === "birthday") {
+        // 账号主页 → 读取用户简介
+        const info = await fetchUserInfo(url);
+        // 用简介文字走正则解析
+        const parsed = regexParseBirthday(info.description);
+        // 账号昵称作为姓名兜底
+        const name = parsed.name || info.name || "";
+        setParsed({ ...parsed, name, _type: "birthday" });
+        setForm({ name, birthday: parsed.birthday||"", group: parsed.group||"" });
+      } else {
+        // 帖子链接 → 读取正文
+        const text = await fetchPostText(url);
+        setWeiboText(text); // 填入文字框，让用户可以再确认
+        const result = regexParseEvent(text);
+        setParsed({ ...result, _type: "event" });
+        setForm({ title:result.title||"", date:result.date||"", time:result.time||"", endTime:result.endTime||"", venue:result.venue||"", city:result.city||"", group:result.group||"" });
+      }
+    } catch(e) {
+      setParseError("❌ " + e.message);
+    }
+    setUrlFetching(false);
+  };
+  const closeModal = () => { setModal(null); resetParse(); setEditItem(null); };
+
+  const saveEvent = () => {
+    // 去重：同日期+同场馆 视为重复
+    const dup = events.find(e =>
+      e.date && form.date && e.date === form.date &&
+      e.venue && form.venue && e.venue.trim() === form.venue.trim()
+    );
+    if (dup) {
+      setDupTarget(dup);
+      setModal("dup-confirm");
+      return;
+    }
+    setEvents(p => [...p, { id: Date.now(), ...form }]);
+    closeModal();
+  };
+  const saveBirthday = () => {
+    // 去重：同姓名 视为重复
+    const dup = birthdays.find(b =>
+      b.name && form.name && b.name.trim() === form.name.trim()
+    );
+    if (dup) {
+      setDupTarget(dup);
+      setModal("dup-confirm");
+      return;
+    }
+    setBirthdays(p => [...p, { id: Date.now(), ...form }]);
+    closeModal();
+  };
+  const saveAnniv = () => {
+    setAnnivs(p => [...p, { id: Date.now(), ...form }]);
+    closeModal();
+  };
+  const deleteItem = (item) => {
+    if (item._t==="event") setEvents(p=>p.filter(e=>e.id!==item.id));
+    else if (item._t==="birthday") setBirthdays(p=>p.filter(b=>b.id!==item.id));
+    else setAnnivs(p=>p.filter(a=>a.id!==item.id));
+    setModal("day"); setEditItem(null);
+  };
+  const saveEdit = () => {
+    if (editType==="event") setEvents(p=>p.map(e=>e.id===editItem.id?{...e,...form}:e));
+    else if (editType==="birthday") setBirthdays(p=>p.map(b=>b.id===editItem.id?{...b,...form}:b));
+    else setAnnivs(p=>p.map(a=>a.id===editItem.id?{...a,...form}:a));
+    setModal("day"); setEditItem(null); setEditType(null);
+  };
+
+  // ── calendar grid ──
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const firstDay = new Date(year, month, 1).getDay();
+  const cells = [...Array(firstDay).fill(null), ...Array.from({length:daysInMonth},(_,i)=>i+1)];
+
+  // ── render ──
+  return (
+    <div style={{ minHeight:"100vh", background:C.bg, color:C.text, display:"flex", flexDirection:"column", alignItems:"center", paddingBottom:60 }}>
+
+      {/* Header */}
+      <div style={{ width:"100%", maxWidth:480, padding:"24px 20px 8px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div>
+          <div style={{ fontSize:11, color:C.accent, letterSpacing:3, fontWeight:700 }}>✦ IDOL CALENDAR</div>
+          <div style={{ fontSize:28, fontWeight:900 }}>{viewMode==="list" ? "所有演出" : `${year}年 ${MONTHS[month]}`}</div>
+        </div>
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          {viewMode === "calendar" && <>
+            <button onClick={prev} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:8, width:36, height:36, fontSize:20, cursor:"pointer" }}>‹</button>
+            <button onClick={next} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:8, width:36, height:36, fontSize:20, cursor:"pointer" }}>›</button>
+          </>}
+          <button onClick={()=>setModal("stats")} style={{ background:"#fce0ea", border:`1px solid ${C.border}`, color:C.accent, borderRadius:8, width:36, height:36, fontSize:16, cursor:"pointer" }}>📊</button>
+          <button onClick={()=>setViewMode(v=>v==="calendar"?"list":"calendar")}
+            style={{ background:viewMode==="list"?C.accent:C.card, border:`1px solid ${viewMode==="list"?C.accent:C.border}`, color:viewMode==="list"?"#fff":C.text, borderRadius:8, width:36, height:36, fontSize:15, cursor:"pointer" }}>
+            {viewMode==="calendar"?"☰":"⊞"}
+          </button>
+        </div>
+      </div>
+
+      {/* Quick actions */}
+      <div style={{ width:"100%", maxWidth:480, padding:"6px 20px", display:"flex", gap:8, overflowX:"auto" }}>
+        {[
+          ["🎤 ＋演出", () => { setModal("add-event"); resetParse(); setForm({}); }],
+          ["🎂 ＋生日", () => { setModal("add-birthday"); resetParse(); setForm({}); }],
+          ["💫 ＋纪念日", () => { setModal("add-anniv"); setForm({repeat:"yearly"}); }],
+          ["🎤 我的团体", () => setModal("my-groups")],
+          ["💾 备份/恢复", () => setModal("backup")],
+        ].map(([lbl,fn]) => (
+          <button key={lbl} onClick={fn} style={{ background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:20, padding:"6px 14px", fontSize:12, cursor:"pointer", whiteSpace:"nowrap" }}>{lbl}</button>
+        ))}
+      </div>
+
+      {/* ── 日历 视图 ── */}
+      {viewMode === "calendar" && <>
+      {/* Day headers */}
+      <div style={{ width:"100%", maxWidth:480, padding:"10px 20px 4px", display:"grid", gridTemplateColumns:"repeat(7,1fr)" }}>
+        {DAYS.map(d => <div key={d} style={{ textAlign:"center", fontSize:11, color:C.muted, fontWeight:600 }}>{d}</div>)}
+      </div>
+
+      {/* Calendar grid */}
+      <div style={{ width:"100%", maxWidth:480, padding:"0 20px", display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3 }}>
+        {cells.map((day, i) => {
+          if (!day) return <div key={`e${i}`} />;
+          const ds = fmt(year, month, day);
+          const items = itemsFor(ds);
+          const isToday = ds === today;
+          const isSel = ds === selDay;
+          return (
+            <div key={day} onClick={() => { setSelDay(ds); setModal("day"); }}
+              style={{ background: isSel?"#e8537a":isToday?"#fce0ea":C.card, border:`${isToday?"1.5":"1"}px solid ${isToday?C.accent:C.border}`, borderRadius:10, padding:"6px 4px", minHeight:54, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:2, boxShadow:isToday?`0 0 8px #e8537a55`:"none" }}>
+              <span style={{ fontSize:13, fontWeight:isToday?800:400, color:isToday?C.accent:C.text }}>{day}</span>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:2, justifyContent:"center" }}>
+                {items.some(i=>i._t==="event") && <span style={{ width:5, height:5, borderRadius:"50%", background:C.coral }} />}
+                {items.some(i=>i._t==="birthday") && <span style={{ width:5, height:5, borderRadius:"50%", background:C.gold }} />}
+                {items.some(i=>i._t==="anniversary") && <span style={{ width:5, height:5, borderRadius:"50%", background:C.teal }} />}
+              </div>
+              {items.length > 0 && <span style={{ fontSize:9, color:C.muted }}>{items.length}项</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Legend */}
+      <div style={{ display:"flex", gap:16, marginTop:10, fontSize:11, color:C.muted }}>
+        <span><span style={{color:C.coral}}>●</span> 演出</span>
+        <span><span style={{color:C.gold}}>●</span> 生日</span>
+        <span><span style={{color:C.teal}}>●</span> 纪念日</span>
+      </div>
+      </>}
+
+      {/* ── 列表 视图 ── */}
+      {viewMode === "list" && (() => {
+        const allEvs = [...events].sort((a,b)=>(a.date||"").localeCompare(b.date||"") || (a.time||"").localeCompare(b.time||""));
+        if (allEvs.length === 0) return (
+          <div style={{width:"100%",maxWidth:480,padding:"60px 20px",textAlign:"center",color:C.muted}}>
+            <div style={{fontSize:36,marginBottom:12}}>🎤</div>
+            <div>还没有演出记录</div>
+            <div style={{fontSize:12,marginTop:6}}>点击上方「＋演出」添加第一场</div>
+          </div>
+        );
+        let lastMonth = "";
+        return (
+          <div style={{width:"100%",maxWidth:480,padding:"8px 20px 20px"}}>
+            {allEvs.map(ev => {
+              const ym = ev.date ? ev.date.slice(0,7) : "未知";
+              const showMonth = ym !== lastMonth;
+              lastMonth = ym;
+              const isPast = ev.date && ev.date < today;
+              return (
+                <React.Fragment key={ev.id}>
+                  {showMonth && (
+                    <div style={{fontSize:12,fontWeight:700,color:C.accent,margin:"16px 0 6px",letterSpacing:2}}>
+                      {ym.replace("-","年")}月
+                    </div>
+                  )}
+                  <div onClick={()=>{ setSelDay(ev.date); setModal("day"); }}
+                    style={{background:isPast?"#fff8fa":C.card,border:`1px solid ${isPast?C.border:C.accent+"55"}`,borderRadius:12,padding:"12px 14px",marginBottom:8,cursor:"pointer",opacity:isPast?0.7:1,display:"flex",gap:12,alignItems:"flex-start"}}>
+                    {/* 日期块 */}
+                    <div style={{minWidth:44,textAlign:"center",background:isPast?C.border:"#fce0ea",borderRadius:8,padding:"4px 6px"}}>
+                      <div style={{fontSize:18,fontWeight:900,color:isPast?C.muted:C.accent,lineHeight:1}}>
+                        {ev.date ? ev.date.slice(8) : "--"}
+                      </div>
+                      <div style={{fontSize:10,color:C.muted}}>
+                        {ev.date ? ["日","一","二","三","四","五","六"][new Date(ev.date).getDay()] : ""}
+                      </div>
+                    </div>
+                    {/* 内容 */}
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {ev.title || "（无标题）"}
+                      </div>
+                      <div style={{fontSize:12,color:C.muted,display:"flex",gap:8,flexWrap:"wrap"}}>
+                        {ev.time && <span>🕐 {ev.time}{ev.endTime?"～"+ev.endTime:""}</span>}
+                        {ev.venue && <span>📍 {ev.venue}</span>}
+                      </div>
+                      {ev.group && (
+                        <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
+                          {ev.group.split(",").map(s=>s.trim()).filter(Boolean).map(g=>(
+                            <span key={g} style={{background:"#fce0ea",border:`1px solid ${C.accent}44`,borderRadius:20,padding:"2px 8px",fontSize:11,color:C.accent,fontWeight:600}}>{g}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {/* ═══ MODALS ═══ */}
+      {modal && (
+        <div style={{ position:"fixed", inset:0, background:"#7a2a4488", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:100 }}
+          onClick={e => { if(e.target===e.currentTarget) closeModal(); }}>
+          <div style={{ background:C.surface, borderRadius:"20px 20px 0 0", width:"100%", maxWidth:480, maxHeight:"90vh", overflowY:"auto", padding:"24px 20px 48px", border:`1px solid ${C.border}`, borderBottom:"none" }}>
+
+            {/* ── DAY VIEW ── */}
+            {modal === "day" && selDay && (() => {
+              const evs = eventsWithTransport(selDay);
+              const nonEvs = itemsFor(selDay).filter(i => i._t !== "event");
+              return (<>
+                <MHead title={selDay} onClose={closeModal} />
+                {evs.length === 0 && nonEvs.length === 0 && <div style={{textAlign:"center",color:C.muted,padding:"32px 0"}}>这天暂无活动 ✨</div>}
+                {evs.map((item,i) => item._t==="transport"
+                  ? <div key={`tr${i}`} style={{background:"#f8f0fc",border:`1px solid #e0c8ec`,borderRadius:8,padding:"8px 12px",margin:"4px 0",color:C.muted,fontSize:12}}>🚇 交通约 {item.minutes} 分钟 → {item.to}</div>
+                  : <ICard key={item.id||i} item={item}
+                      onEdit={() => { setEditItem(item); setEditType("event"); setForm({title:item.title,date:item.date,time:item.time,endTime:item.endTime,venue:item.venue,city:item.city,group:item.group}); setModal("edit"); }}
+                      onDelete={() => deleteItem(item)} />
+                )}
+                {nonEvs.map((item,i) => <ICard key={item.id||i} item={item}
+                  onEdit={() => {
+                    setEditItem(item);
+                    if (item._t==="birthday") { setEditType("birthday"); setForm({name:item.name,birthday:item.birthday,group:item.group}); }
+                    else { setEditType("anniversary"); setForm({title:item.title,startDate:item.startDate,repeat:item.repeat,note:item.note}); }
+                    setModal("edit");
+                  }}
+                  onDelete={() => deleteItem(item)} />
+                )}
+              </>);
+            })()}
+
+            {/* ── ADD EVENT (weibo) ── */}
+            {(modal==="add-event" || modal==="add-birthday") && (() => {
+              const isEv = modal==="add-event";
+              const hasParsed = parsed?._type === (isEv?"event":"birthday");
+              return (<>
+                <MHead title={isEv?"添加演出":"添加生日"} onClose={closeModal} />
+
+                {!hasParsed && (<>
+                  {/* ── 链接抓取（部署后可用）── */}
+                  <div style={{marginBottom:10}}>
+                    <div style={{fontSize:11,color:C.muted,marginBottom:5}}>
+                      {isEv ? "粘贴微博帖子链接（部署后可用）" : "粘贴微博账号主页链接（部署后可用）"}
+                    </div>
+                    <div style={{display:"flex",gap:8}}>
+                      <input
+                        value={urlInput}
+                        onChange={e=>{setUrlInput(e.target.value);setParseError("");}}
+                        onKeyDown={e=>e.key==="Enter"&&handleUrlFetch(isEv?"event":"birthday")}
+                        placeholder={isEv?"https://weibo.com/xxx/PostID":"https://weibo.com/u/2071204471"}
+                        style={{flex:1,background:C.card,border:`1px solid ${urlInput.trim()?"#e8537a":C.border}`,color:C.text,borderRadius:8,padding:"8px 12px",fontSize:12,outline:"none"}}
+                      />
+                      <button
+                        onClick={()=>handleUrlFetch(isEv?"event":"birthday")}
+                        disabled={!urlInput.trim()||urlFetching}
+                        style={{background:urlInput.trim()&&!urlFetching?"linear-gradient(135deg,#e8537a,#c0386a)":"#f0d8e0",border:"none",color:urlInput.trim()&&!urlFetching?"#fff":"#b07a90",borderRadius:8,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:urlInput.trim()&&!urlFetching?"pointer":"default",whiteSpace:"nowrap"}}>
+                        {urlFetching?"抓取中…":"抓取"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{display:"flex",alignItems:"center",gap:8,margin:"2px 0 8px"}}>
+                    <div style={{flex:1,height:1,background:C.border}}/><span style={{fontSize:11,color:C.muted}}>或复制文字粘贴识别</span><div style={{flex:1,height:1,background:C.border}}/>
+                  </div>
+
+                  {/* 快递地址风格：粘贴文字即识别 */}
+                  <div style={{position:"relative",marginBottom:8}}>
+                    <textarea
+                      value={weiboText}
+                      onChange={e => { setWeiboText(e.target.value); setParseError(""); }}
+                      placeholder={isEv
+                        ? "从微博复制演出通知文字，粘贴到这里\n\n例：\n🎤 Luminous Fantasia Idol Live Vol.25\n📅 2026.3.1（日）\n📍 上海 7HERTZ LIVE\n演出时间：15:00～17:00"
+                        : "或复制账号简介/置顶帖文字到这里\n\n例：\n生日：1999年5月20日\n所属：All-Light"}
+                      rows={5}
+                      style={{width:"100%",background:C.card,border:`1.5px solid ${weiboText.trim()?"#e8537a":C.border}`,color:C.text,borderRadius:12,padding:"12px 12px 44px 12px",fontSize:13,outline:"none",resize:"none",lineHeight:1.6,transition:"border-color 0.2s"}}
+                    />
+                    <button
+                      onClick={() => handleParse(isEv?"event":"birthday")}
+                      disabled={!weiboText.trim()}
+                      style={{position:"absolute",right:8,bottom:8,background:weiboText.trim()?"linear-gradient(135deg,#e8537a,#c0386a)":"#f0d8e0",border:"none",color:weiboText.trim()?"#fff":"#b07a90",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:weiboText.trim()?"pointer":"default",transition:"all 0.2s"}}>
+                      ✦ 识别
+                    </button>
+                  </div>
+                  {parseError && <div style={{background:"#fff0f0",border:"1px solid #f5b8c0",borderRadius:8,padding:"9px 12px",fontSize:12,color:"#c0304a",marginBottom:8}}>{parseError}</div>}
+                  <div style={{display:"flex",alignItems:"center",gap:8,margin:"2px 0 14px"}}>
+                    <div style={{flex:1,height:1,background:C.border}}/><span style={{fontSize:11,color:C.muted}}>或直接手动填写</span><div style={{flex:1,height:1,background:C.border}}/>
+                  </div>
+                </>)}
+
+                {hasParsed && (
+                  <div style={{background:"#f0faf4",border:"1px solid #a8dbb8",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#3a8a5a",marginBottom:12,display:"flex",justifyContent:"space-between"}}>
+                    <span>✓ 识别完成，请核对以下信息</span>
+                    <button onClick={resetParse} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:12}}>重新识别</button>
+                  </div>
+                )}
+
+                {isEv ? (<>
+                  <FF label="演出名称" value={form.title||""} onChange={v=>setForm(f=>({...f,title:v}))} />
+                  <FF label="日期" value={form.date||""} onChange={v=>setForm(f=>({...f,date:v}))} type="date" />
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    <FF label="演出开始" value={form.time||""} onChange={v=>setForm(f=>({...f,time:v}))} type="time" />
+                    <FF label="演出结束" value={form.endTime||""} onChange={v=>setForm(f=>({...f,endTime:v}))} type="time" />
+                  </div>
+                  <FF label="演出场馆" value={form.venue||""} onChange={v=>setForm(f=>({...f,venue:v}))} />
+                  <FF label="城市" value={form.city||""} onChange={v=>setForm(f=>({...f,city:v}))} />
+                  <GroupPicker value={form.group||""} onChange={v=>setForm(f=>({...f,group:v}))} myGroups={myGroups} />
+                  {(hasParsed || (form.title&&form.date)) && <SBtn onClick={saveEvent} />}
+                </>) : (<>
+                  <FF label="姓名" value={form.name||""} onChange={v=>setForm(f=>({...f,name:v}))} />
+                  <FF label="生日" value={form.birthday||""} onChange={v=>setForm(f=>({...f,birthday:v}))} type="date" />
+                  <FF label="所属团体" value={form.group||""} onChange={v=>setForm(f=>({...f,group:v}))} />
+                  {(hasParsed || (form.name&&form.birthday)) && <SBtn onClick={saveBirthday} label="保存生日（每年重复）" />}
+                </>)}
+              </>);
+            })()}
+
+            {/* ── ADD ANNIVERSARY ── */}
+            {modal==="add-anniv" && (<>
+              <MHead title="添加纪念日" onClose={closeModal} />
+              <FF label="纪念日名称（如：第一次见面）" value={form.title||""} onChange={v=>setForm(f=>({...f,title:v}))} />
+              <FF label="起始日期" value={form.startDate||""} onChange={v=>setForm(f=>({...f,startDate:v}))} type="date" />
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>重复方式</label>
+                <select value={form.repeat||"yearly"} onChange={e=>setForm(f=>({...f,repeat:e.target.value}))}
+                  style={{width:"100%",background:"#fff8fa",border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 12px",fontSize:13}}>
+                  <option value="yearly">每年（周年纪念）</option>
+                  <option value="monthly">每月（月纪念）</option>
+                  <option value="100days">每100天</option>
+                </select>
+              </div>
+              <FF label="备注（可选）" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} />
+              {form.title&&form.startDate && <SBtn onClick={saveAnniv} label="保存纪念日" />}
+            </>)}
+
+            {/* ── EDIT ── */}
+            {modal==="edit" && editItem && (<>
+              <MHead title="编辑" onClose={() => { setModal("day"); setEditItem(null); resetParse(); }} />
+
+              {/* 自动识别框（演出和生日都有）*/}
+              {(editType==="event" || editType==="birthday") && (<>
+                <div style={{position:"relative",marginBottom:8}}>
+                  <textarea
+                    value={weiboText}
+                    onChange={e => { setWeiboText(e.target.value); setParseError(""); }}
+                    placeholder={editType==="event"
+                      ? "粘贴新的演出文字，自动覆盖下方字段…"
+                      : "粘贴生日相关文字，自动覆盖下方字段…"}
+                    rows={3}
+                    style={{width:"100%",background:C.card,border:`1.5px solid ${weiboText.trim()?"#e8537a":C.border}`,color:C.text,borderRadius:10,padding:"10px 12px 36px 12px",fontSize:12,outline:"none",resize:"none",lineHeight:1.5,transition:"border-color 0.2s",color:C.muted}}
+                  />
+                  <button
+                    onClick={() => handleParse(editType)}
+                    disabled={!weiboText.trim()}
+                    style={{position:"absolute",right:8,bottom:8,background:weiboText.trim()?"linear-gradient(135deg,#e8537a,#c0386a)":"#f0d8e0",border:"none",color:weiboText.trim()?"#fff":"#b07a90",borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:weiboText.trim()?"pointer":"default",transition:"all 0.2s"}}>
+                    ✦ 重新识别
+                  </button>
+                </div>
+                {parseError && <div style={{background:"#fff0f0",border:"1px solid #f5b8c0",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#c0304a",marginBottom:8}}>{parseError}</div>}
+                {parsed && <div style={{background:"#f0faf4",border:"1px solid #a8dbb8",borderRadius:8,padding:"7px 12px",fontSize:12,color:"#3a8a5a",marginBottom:10,display:"flex",justifyContent:"space-between"}}>
+                  <span>✓ 已识别，字段已更新</span>
+                  <button onClick={()=>{setWeiboText("");setParsed(null);setParseError("");}} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:11}}>清除</button>
+                </div>}
+                <div style={{display:"flex",alignItems:"center",gap:8,margin:"2px 0 12px"}}>
+                  <div style={{flex:1,height:1,background:C.border}}/><span style={{fontSize:11,color:C.muted}}>手动修改</span><div style={{flex:1,height:1,background:C.border}}/>
+                </div>
+              </>)}
+
+              {editType==="event" && (<>
+                <FF label="演出名称" value={form.title||""} onChange={v=>setForm(f=>({...f,title:v}))} />
+                <FF label="日期" value={form.date||""} onChange={v=>setForm(f=>({...f,date:v}))} type="date" />
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <FF label="演出开始" value={form.time||""} onChange={v=>setForm(f=>({...f,time:v}))} type="time" />
+                  <FF label="演出结束" value={form.endTime||""} onChange={v=>setForm(f=>({...f,endTime:v}))} type="time" />
+                </div>
+                <FF label="演出场馆" value={form.venue||""} onChange={v=>setForm(f=>({...f,venue:v}))} />
+                <FF label="城市" value={form.city||""} onChange={v=>setForm(f=>({...f,city:v}))} />
+                <GroupPicker value={form.group||""} onChange={v=>setForm(f=>({...f,group:v}))} myGroups={myGroups} />
+              </>)}
+              {editType==="birthday" && (<>
+                <FF label="姓名" value={form.name||""} onChange={v=>setForm(f=>({...f,name:v}))} />
+                <FF label="生日" value={form.birthday||""} onChange={v=>setForm(f=>({...f,birthday:v}))} type="date" />
+                <FF label="所属团体" value={form.group||""} onChange={v=>setForm(f=>({...f,group:v}))} />
+              </>)}
+              {editType==="anniversary" && (<>
+                <FF label="纪念日名称" value={form.title||""} onChange={v=>setForm(f=>({...f,title:v}))} />
+                <FF label="起始日期" value={form.startDate||""} onChange={v=>setForm(f=>({...f,startDate:v}))} type="date" />
+                <div style={{marginBottom:12}}>
+                  <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>重复方式</label>
+                  <select value={form.repeat||"yearly"} onChange={e=>setForm(f=>({...f,repeat:e.target.value}))}
+                    style={{width:"100%",background:"#fff8fa",border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 12px",fontSize:13}}>
+                    <option value="yearly">每年</option><option value="monthly">每月</option><option value="100days">每100天</option>
+                  </select>
+                </div>
+              </>)}
+              <div style={{display:"flex",gap:8,marginTop:8}}>
+                <SBtn onClick={saveEdit} label="保存修改" />
+                <button onClick={()=>deleteItem(editItem)} style={{flex:1,padding:12,borderRadius:12,border:"1px solid #f5b8c0",background:"#fff0f0",color:"#c0304a",fontSize:14,cursor:"pointer"}}>删除</button>
+              </div>
+            </>)}
+
+            {/* ── STATS ── */}
+            {modal==="stats" && (() => {
+              const s = stats();
+              return (<>
+                <MHead title={`${year}年 演出统计`} onClose={closeModal} />
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                  <SC label="参与演出次数" value={s.total} unit="次" color={C.coral} />
+                  <SC label="最常去城市" value={s.topCity} color={C.gold} />
+                </div>
+                <SC label="最常去场馆" value={s.topVenue} color={C.teal} wide />
+                {Object.entries(s.ci).length > 0 && (<div style={{marginTop:16}}>
+                  <div style={{fontSize:12,color:C.muted,marginBottom:8}}>城市分布</div>
+                  {Object.entries(s.ci).sort((a,b)=>b[1]-a[1]).map(([c,n])=>(
+                    <div key={c} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}>
+                      <span>{c}</span><span style={{color:C.coral}}>{n}次</span>
+                    </div>
+                  ))}
+                </div>)}
+                {Object.entries(s.ve).length > 0 && (<div style={{marginTop:16}}>
+                  <div style={{fontSize:12,color:C.muted,marginBottom:8}}>场馆分布</div>
+                  {Object.entries(s.ve).sort((a,b)=>b[1]-a[1]).map(([v,n])=>(
+                    <div key={v} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}>
+                      <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v}</span>
+                      <span style={{color:C.teal,marginLeft:8}}>{n}次</span>
+                    </div>
+                  ))}
+                </div>)}
+                {s.total===0 && <div style={{textAlign:"center",color:C.muted,padding:"32px 0"}}>今年还没有演出记录 ✨</div>}
+              </>);
+            })()}
+
+            {/* ── 重复确认 ── */}
+            {modal==="dup-confirm" && dupTarget && (<>
+              <MHead title="检测到重复" onClose={closeModal} />
+              <div style={{background:"#fffaee",border:"1px solid #f5dfa0",borderRadius:10,padding:"14px",marginBottom:16}}>
+                <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:6}}>已有相同的记录：</div>
+                <div style={{fontSize:13,color:C.text,marginBottom:2}}>{dupTarget.title || dupTarget.name || "（无标题）"}</div>
+                <div style={{fontSize:12,color:C.muted}}>{dupTarget.date || dupTarget.birthday} {dupTarget.venue || dupTarget.group || ""}</div>
+              </div>
+              <div style={{fontSize:13,color:C.muted,marginBottom:16,lineHeight:1.6}}>
+                是否用新识别的内容<strong style={{color:C.text}}>覆盖</strong>原有记录？
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={() => {
+                  // 覆盖：用新 form 替换已有记录
+                  if (dupTarget.birthday !== undefined) {
+                    setBirthdays(p => p.map(b => b.id===dupTarget.id ? {...b,...form} : b));
+                  } else {
+                    setEvents(p => p.map(e => e.id===dupTarget.id ? {...e,...form} : e));
+                  }
+                  setDupTarget(null);
+                  closeModal();
+                }} style={{flex:1,padding:12,borderRadius:12,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                  覆盖原有记录
+                </button>
+                <button onClick={() => {
+                  // 强制新增（不去重）
+                  if (dupTarget.birthday !== undefined) {
+                    setBirthdays(p => [...p, { id: Date.now(), ...form }]);
+                  } else {
+                    setEvents(p => [...p, { id: Date.now(), ...form }]);
+                  }
+                  setDupTarget(null);
+                  closeModal();
+                }} style={{flex:1,padding:12,borderRadius:12,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:14,cursor:"pointer"}}>
+                  仍然新增
+                </button>
+              </div>
+            </>)}
+
+            {/* ── 备份与恢复 ── */}
+            {/* ── 我的团体管理 ── */}
+            {modal==="my-groups" && (() => {
+              return (<>
+                <MHead title="我关注的团体" onClose={closeModal} />
+                <div style={{fontSize:12,color:C.muted,marginBottom:14,lineHeight:1.6}}>
+                  添加你关注的团体，在填写演出信息时可以一键选择。
+                </div>
+
+                {/* 已添加的团体 */}
+                {myGroups.length === 0 && (
+                  <div style={{textAlign:"center",color:C.muted,padding:"20px 0",fontSize:13}}>还没有添加团体</div>
+                )}
+                <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+                  {myGroups.map((g,i) => (
+                    <div key={g} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px"}}>
+                      <span style={{fontSize:14,fontWeight:600}}>{g}</span>
+                      <button onClick={()=>setMyGroups(p=>p.filter((_,j)=>j!==i))}
+                        style={{background:"none",border:"none",color:"#d08090",fontSize:18,cursor:"pointer",padding:"0 4px"}}>×</button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 添加新团体 */}
+                <div style={{display:"flex",gap:8}}>
+                  <input value={newGroup} onChange={e=>setNewGroup(e.target.value)}
+                    onKeyDown={e=>{ if(e.key==="Enter"&&newGroup.trim()&&!myGroups.includes(newGroup.trim())){ setMyGroups(p=>[...p,newGroup.trim()]); setNewGroup(""); }}}
+                    placeholder="输入团体名称…"
+                    style={{flex:1,background:"#fff8fa",border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px",fontSize:13,outline:"none"}} />
+                  <button
+                    onClick={()=>{ if(newGroup.trim()&&!myGroups.includes(newGroup.trim())){ setMyGroups(p=>[...p,newGroup.trim()]); setNewGroup(""); }}}
+                    disabled={!newGroup.trim()||myGroups.includes(newGroup.trim())}
+                    style={{padding:"10px 16px",borderRadius:8,border:"none",background:newGroup.trim()&&!myGroups.includes(newGroup.trim())?"linear-gradient(135deg,#e8537a,#c0386a)":"#f0d8e0",color:newGroup.trim()&&!myGroups.includes(newGroup.trim())?"#fff":"#b07a90",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                    添加
+                  </button>
+                </div>
+              </>);
+            })()}
+
+            {modal==="backup" && (<>
+              <MHead title="备份与恢复" onClose={closeModal} />
+
+              {/* 数据概览 */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:20}}>
+                {[["演出",events.length,C.coral],["生日",birthdays.length,C.gold],["纪念日",anniversaries.length,C.teal]].map(([label,count,color])=>(
+                  <div key={label} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 8px",textAlign:"center"}}>
+                    <div style={{fontSize:22,fontWeight:900,color}}>{count}</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 导出 */}
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px",marginBottom:12}}>
+                <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>📤 导出备份</div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:12,lineHeight:1.6}}>
+                  将所有数据导出为 JSON 文件，保存到手机/电脑/云盘。换设备或清除浏览器数据后可用此文件恢复。
+                </div>
+                <button onClick={exportData}
+                  style={{width:"100%",padding:"11px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                  下载备份文件
+                </button>
+              </div>
+
+              {/* 导入 */}
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px"}}>
+                <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>📥 恢复数据</div>
+                <div style={{fontSize:12,color:C.muted,marginBottom:12,lineHeight:1.6}}>
+                  选择之前导出的备份文件。已有的记录不会被删除，只会新增备份中有但本地没有的记录。
+                </div>
+                <label style={{display:"block",width:"100%",padding:"11px",borderRadius:10,border:`1px dashed ${C.accent}`,background:"#fff8fa",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer",textAlign:"center",boxSizing:"border-box"}}>
+                  选择备份文件
+                  <input type="file" accept=".json" onChange={importData} style={{display:"none"}} />
+                </label>
+              </div>
+            </>)}
+
+            {/* ── 导入成功 ── */}
+            {modal==="import-done" && (<>
+              <MHead title="恢复完成" onClose={closeModal} />
+              <div style={{textAlign:"center",padding:"24px 0 16px"}}>
+                <div style={{fontSize:48,marginBottom:12}}>✅</div>
+                <div style={{fontSize:16,fontWeight:700,marginBottom:8}}>数据恢复成功</div>
+                <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>
+                  演出 <strong style={{color:C.coral}}>{importCount.events}</strong> 条 ·
+                  生日 <strong style={{color:C.gold}}>{importCount.birthdays}</strong> 条 ·
+                  纪念日 <strong style={{color:C.teal}}>{importCount.anniversaries}</strong> 条
+                </div>
+                <div style={{fontSize:12,color:C.muted,marginTop:8}}>已有记录不受影响</div>
+              </div>
+              <SBtn onClick={closeModal} label="好的" />
+            </>)}
+
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sub components ──
+function MHead({ title, onClose }) {
+  return (
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <div style={{fontSize:16,fontWeight:700}}>{title}</div>
+      <button onClick={onClose} style={{background:"none",border:"none",color:C.muted,fontSize:20,cursor:"pointer"}}>✕</button>
+    </div>
+  );
+}
+
+function FF({ label, value, onChange, type="text" }) {
+  return (
+    <div style={{marginBottom:10}}>
+      <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>{label}</label>
+      <input type={type} value={value} onChange={e=>onChange(e.target.value)}
+        style={{width:"100%",background:"#fff8fa",border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 12px",fontSize:13,boxSizing:"border-box",outline:"none"}} />
+    </div>
+  );
+}
+
+function SBtn({ onClick, label="保存" }) {
+  return (
+    <button onClick={onClick} style={{width:"100%",padding:12,borderRadius:12,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",marginTop:8}}>{label}</button>
+  );
+}
+
+function GroupPicker({ value, onChange, myGroups }) {
+  // value: 逗号分隔字符串，如 "团体A,团体B"
+  const selected = value ? value.split(",").map(s=>s.trim()).filter(Boolean) : [];
+  const [inputVal, setInputVal] = useState("");
+
+  const toggle = (g) => {
+    const next = selected.includes(g)
+      ? selected.filter(x=>x!==g)
+      : [...selected, g];
+    onChange(next.join(","));
+  };
+  const addCustom = () => {
+    const v = inputVal.trim();
+    if (!v) return;
+    if (!selected.includes(v)) onChange([...selected, v].join(","));
+    setInputVal("");
+  };
+
+  return (
+    <div style={{marginBottom:12}}>
+      <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:6}}>演出团体</label>
+
+      {/* 已关注团体快速选择 */}
+      {myGroups.length > 0 && (
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+          {myGroups.map(g => (
+            <button key={g} onClick={()=>toggle(g)}
+              style={{padding:"4px 10px",borderRadius:20,border:`1px solid ${selected.includes(g)?C.accent:C.border}`,background:selected.includes(g)?"#fce0ea":C.card,color:selected.includes(g)?C.accent:C.text,fontSize:12,cursor:"pointer",fontWeight:selected.includes(g)?700:400}}>
+              {selected.includes(g) ? "✓ " : ""}{g}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 已选标签展示 */}
+      {selected.length > 0 && (
+        <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
+          {selected.map(g => (
+            <span key={g} style={{display:"inline-flex",alignItems:"center",gap:4,background:"#fce0ea",border:`1px solid ${C.accent}`,borderRadius:20,padding:"3px 10px",fontSize:12,color:C.accent,fontWeight:600}}>
+              {g}
+              <span onClick={()=>toggle(g)} style={{cursor:"pointer",fontSize:14,lineHeight:1}}>×</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* 手动输入新团体 */}
+      <div style={{display:"flex",gap:6}}>
+        <input value={inputVal} onChange={e=>setInputVal(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&addCustom()}
+          placeholder={myGroups.length?"输入其他团体名…":"输入团体名，回车添加"}
+          style={{flex:1,background:"#fff8fa",border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"7px 10px",fontSize:12,outline:"none"}} />
+        <button onClick={addCustom} disabled={!inputVal.trim()}
+          style={{padding:"7px 12px",borderRadius:8,border:"none",background:inputVal.trim()?C.accent:"#f0d8e0",color:inputVal.trim()?"#fff":"#b07a90",fontSize:12,fontWeight:700,cursor:inputVal.trim()?"pointer":"default"}}>
+          添加
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ICard({ item, onEdit, onDelete }) {
+  const cfg = { event:{bg:"#fff0f4",border:"#f5c0d0",color:"#c8385a"}, birthday:{bg:"#fffaee",border:"#f5dfa0",color:"#a06010"}, anniversary:{bg:"#f8f0fc",border:"#dcc8ec",color:"#7a4a9a"} }[item._t] || {};
+  let title = "", sub = "";
+  if (item._t==="event") {
+    title = item.title;
+    sub = [item.time, item.venue, item.city].filter(Boolean).join(" · ");
+  }
+  else if (item._t==="birthday") { title=`🎂 ${item.name} 生日`; sub=item.group||""; }
+  else { title=item.title; sub=item._years>0?`第${item._years}周年 ✨`:item._months>0?`第${item._months}个月 ✨`:item._days?`第${item._days}天 ✨`:"今天是起始日"; }
+  const groups = item.group ? item.group.split(",").map(s=>s.trim()).filter(Boolean) : [];
+  return (
+    <div style={{background:cfg.bg,border:`1px solid ${cfg.border}`,borderRadius:10,padding:"10px 12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+      <div style={{flex:1}}>
+        <div style={{fontSize:14,fontWeight:600,color:cfg.color}}>{title}</div>
+        {sub && <div style={{fontSize:12,color:C.muted,marginTop:2}}>{sub}</div>}
+        {item._t==="event" && groups.length > 0 && (
+          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:5}}>
+            {groups.map(g=>(
+              <span key={g} style={{background:"#fce0ea",border:`1px solid ${C.accent}44`,borderRadius:20,padding:"2px 8px",fontSize:11,color:C.accent,fontWeight:600}}>{g}</span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={{display:"flex",gap:8,marginLeft:8}}>
+        <button onClick={onEdit} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✎</button>
+        <button onClick={onDelete} style={{background:"none",border:"none",color:"#d08090",cursor:"pointer",fontSize:14}}>✕</button>
+      </div>
+    </div>
+  );
+}
+
+function SC({ label, value, unit="", color, wide }) {
+  return (
+    <div style={{background:"#fff8fa",border:`1px solid ${C.border}`,borderRadius:12,padding:14,gridColumn:wide?"1 / -1":undefined}}>
+      <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{label}</div>
+      <div style={{fontSize:wide?15:22,fontWeight:800,color}}>{value}{unit&&<span style={{fontSize:13,fontWeight:400,marginLeft:2}}>{unit}</span>}</div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
