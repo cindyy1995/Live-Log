@@ -882,6 +882,7 @@ function App() {
         </div>
       )}
 
+      <BottomNav page={page} navigate={navigate} prevPage={selAnniv?._prevPage} />
     </div>
   );
 
@@ -1277,13 +1278,10 @@ function App() {
       {modal && (() => {
         const isAddPage = ["add-event","add-birthday","add-anniv"].includes(modal);
         return (
-        <div style={{ position:"fixed", inset:0, background: isAddPage ? "#faf7f2" : "#1a3a3888", display:"flex", alignItems: isAddPage ? "flex-start" : "flex-end", justifyContent:"center", zIndex:100 }}
-          onClick={e => { if(e.target===e.currentTarget && !isAddPage) closeModal(); }}>
+        <div style={{ position:"fixed", inset:0, background:"#1a3a3888", display:"flex", alignItems:"flex-end", justifyContent:"center", zIndex:100 }}
+          onClick={e => { if(e.target===e.currentTarget) closeModal(); }}>
           <div
-            style={ isAddPage
-              ? { background:"#faf7f2", backgroundImage:"linear-gradient(rgba(160,140,100,0.05) 1px, transparent 1px),linear-gradient(90deg,rgba(94,206,200,0.07) 1px,transparent 1px)", backgroundSize:"28px 28px", width:"100%", maxWidth:480, minHeight:"100vh", overflowY:"auto", padding:"env(safe-area-inset-top,0px) 20px 80px", WebkitOverflowScrolling:"touch" }
-              : { background:"#faf7f2", backgroundImage:"linear-gradient(rgba(160,140,100,0.05) 1px, transparent 1px),linear-gradient(90deg,rgba(94,206,200,0.07) 1px,transparent 1px)", backgroundSize:"28px 28px", borderRadius:"20px 20px 0 0", width:"100%", maxWidth:480, maxHeight:"90vh", overflowY:"auto", padding:"24px 20px 48px", border:`2px solid ${C.border}`, borderBottom:"none", boxShadow:"0 -4px 0 0 #b8eeeb", WebkitOverflowScrolling:"touch" }
-            }
+            style={{ background:"#faf7f2", backgroundImage:"linear-gradient(rgba(160,140,100,0.05) 1px, transparent 1px),linear-gradient(90deg,rgba(94,206,200,0.07) 1px,transparent 1px)", backgroundSize:"28px 28px", borderRadius:"20px 20px 0 0", width:"100%", maxWidth:480, maxHeight:"90vh", overflowY:"auto", padding:"24px 20px 48px", border:`2px solid ${C.border}`, borderBottom:"none", boxShadow:"0 -4px 0 0 #b8eeeb", WebkitOverflowScrolling:"touch" }}
             onTouchMove={e => e.stopPropagation()}
             onClick={e => e.stopPropagation()}>
 
@@ -1337,12 +1335,12 @@ function App() {
                   <FF label="演出场馆" value={form.venue||""} onChange={v=>setForm(f=>({...f,venue:v}))} />
                   <FF label="城市" value={form.city||""} onChange={v=>setForm(f=>({...f,city:v}))} />
                   <GroupPicker value={form.group||""} onChange={v=>setForm(f=>({...f,group:v}))} myGroups={myGroups} />
-                  {(hasParsed || (form.title&&form.date)) && <SBtn onClick={saveEvent} />}
+                  <SBtn onClick={saveEvent} disabled={!hasParsed && !(form.title&&form.date)} />
                 </>) : (<>
                   <FF label="姓名" value={form.name||""} onChange={v=>setForm(f=>({...f,name:v}))} />
                   <FF label="生日" value={form.birthday||""} onChange={v=>setForm(f=>({...f,birthday:v}))} type="date" />
                   <GroupPicker value={form.group||""} onChange={v=>setForm(f=>({...f,group:v}))} myGroups={myGroups} />
-                  {(hasParsed || (form.name&&form.birthday)) && <SBtn onClick={saveBirthday} label="保存生日（每年重复）" />}
+                  <SBtn onClick={saveBirthday} label="保存生日（每年重复）" disabled={!hasParsed && !(form.name&&form.birthday)} />
                 </>)}
               </>);
             })()}
@@ -1384,7 +1382,7 @@ function App() {
                 </div>
               </div>
               <FF label="备注（可选）" value={form.note||""} onChange={v=>setForm(f=>({...f,note:v}))} />
-              {form.title&&form.startDate && <SBtn onClick={saveAnniv} label="保存纪念日" />}
+              <SBtn onClick={saveAnniv} label="保存纪念日" disabled={!(form.title&&form.startDate)} />
             </>)}
 
             {/* ── EDIT ── */}
@@ -1838,30 +1836,13 @@ function App() {
 function MHead({ title, onClose, fullPage, accent }) {
   if (fullPage) {
     const ac = accent || "#ff6bab";
-    // 背景色：accent 加极淡透明度
-    const bgTint = ac === "#f0a830" ? "#fffbf0" : ac === "#5ecec8" ? "#f0fffe" : "#fff8fb";
-    const shadowColor = ac + "12";
     return (
-      <div style={{
-        position:"sticky", top:0, zIndex:10, marginBottom:20,
-        background:`linear-gradient(135deg,${bgTint} 0%,#faf7f2 100%)`,
-        borderBottom:`2px solid ${C.border}`,
-        boxShadow:`0 2px 8px ${shadowColor}`,
-        padding:"14px 16px 12px",
-        display:"flex", justifyContent:"space-between", alignItems:"center",
-      }}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <div style={{width:4,height:20,borderRadius:2,background:ac}} />
-          <div style={{fontSize:17,fontWeight:900,color:C.text,fontFamily:"'Nunito','PingFang SC',sans-serif",letterSpacing:.5}}>{title}</div>
+          <div style={{width:4,height:18,borderRadius:2,background:ac,flexShrink:0}} />
+          <div style={{fontSize:16,fontWeight:900,color:C.text,fontFamily:"'Nunito','PingFang SC',sans-serif"}}>{title}</div>
         </div>
-        <button onClick={onClose} style={{
-          background:`linear-gradient(135deg,${bgTint},#faf7f2)`,
-          border:`2px solid ${ac}`,color:ac,
-          fontSize:15,cursor:"pointer",width:34,height:34,
-          borderRadius:10,fontWeight:900,lineHeight:1,
-          boxShadow:`0 2px 0 0 ${ac}33`,
-          display:"flex",alignItems:"center",justifyContent:"center",
-        }}>✕</button>
+        <button onClick={onClose} style={{background:"#fff8ee",border:`2px solid ${ac}`,color:ac,fontSize:15,cursor:"pointer",width:32,height:32,borderRadius:8,fontWeight:900,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
       </div>
     );
   }
@@ -2164,9 +2145,18 @@ function FF({ label, value, onChange, type="text" }) {
   );
 }
 
-function SBtn({ onClick, label="保存" }) {
+function SBtn({ onClick, label="保存", disabled=false }) {
   return (
-    <button onClick={onClick} style={{width:"100%",padding:12,borderRadius:12,border:"none",background:"linear-gradient(135deg,#ff6bab,#e03888)",color:"#fff",fontSize:15,fontWeight:900,cursor:"pointer",marginTop:8,boxShadow:"0 4px 0 0 #c0306055"}}>{label}</button>
+    <button onClick={disabled ? undefined : onClick}
+      style={{width:"100%",padding:12,borderRadius:12,border:"none",
+        background: disabled ? "#e8e0d0" : "linear-gradient(135deg,#ff6bab,#e03888)",
+        color: disabled ? "#b0a898" : "#fff",
+        fontSize:15,fontWeight:900,
+        cursor: disabled ? "default" : "pointer",
+        marginTop:8,
+        boxShadow: disabled ? "0 4px 0 0 #d0c8bc" : "0 4px 0 0 #c0306055",
+        transition:"all 0.2s",
+      }}>{label}</button>
   );
 }
 
