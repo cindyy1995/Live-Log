@@ -411,6 +411,7 @@ function App() {
   const [exportJson, setExportJson]   = useState("");
   const [myGroups, setMyGroups]       = useState(() => loadLS("ic_groups", []));
   const [newGroup, setNewGroup]       = useState("");
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   useEffect(() => localStorage.setItem("ic_events", JSON.stringify(events)), [events]);
   useEffect(() => localStorage.setItem("ic_birthdays", JSON.stringify(birthdays)), [birthdays]);
@@ -722,6 +723,15 @@ function App() {
     </div>
   );
 
+  // doClearAll 函数（顶层定义）
+  const doClearAll = () => {
+    ["ic_events","ic_birthdays","ic_anniversaries","ic_groups"].forEach(k=>localStorage.removeItem(k));
+    Object.keys(localStorage).filter(k=>k.startsWith("ic_anniv_")).forEach(k=>localStorage.removeItem(k));
+    setEvents([]); setBirthdays([]); setAnnivs([]); setMyGroups([]);
+    setShowClearConfirm(false);
+    navigate("splash");
+  };
+
   // 设置页
   if (page === "settings") return (
     <div className="cream-bg" style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
@@ -759,10 +769,12 @@ function App() {
           </div>
         </div>
 
-        {/* 备份恢复 */}
+        {/* 备份恢复 + 清除 */}
         <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`}}>
           <div style={{fontSize:15,fontWeight:900,marginBottom:12,color:C.text}}>💾 备份与恢复</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
+
+          {/* 数据量统计 */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
             {[["演出",events.length,C.coral],["生日",birthdays.length,C.gold],["纪念日",anniversaries.length,C.teal],["团体标签",myGroups.length,"#c97de8"]].map(([label,count,color])=>(
               <div key={label} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 6px",textAlign:"center"}}>
                 <div style={{fontSize:22,fontWeight:900,color}}>{count}</div>
@@ -770,14 +782,36 @@ function App() {
               </div>
             ))}
           </div>
-          <div style={{fontSize:12,color:C.muted,marginBottom:12,lineHeight:1.6}}>导出 JSON 文件保存到手机/iCloud，换设备后可恢复。</div>
+
+          {/* 重要提示 */}
+          <div style={{background:"#fffbee",border:"1.5px solid #f0d060",borderRadius:10,padding:"11px 14px",marginBottom:14,fontSize:12,color:"#7a6010",lineHeight:1.75}}>
+            <div style={{fontWeight:900,marginBottom:4}}>⚠️ 关于数据存储</div>
+            <div>· 所有数据仅保存在<strong>当前浏览器</strong>中，换手机或清除浏览器缓存数据将丢失</div>
+            <div>· 不同浏览器之间数据<strong>不会自动同步</strong>，请固定使用同一个浏览器</div>
+            <div style={{marginTop:4,color:"#c07010",fontWeight:800}}>建议：定期导出备份文件，换设备后可完整恢复</div>
+          </div>
+
           <button onClick={()=>exportData(false)} style={{width:"100%",padding:"11px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:10}}>
             📤 下载备份文件
           </button>
-          <label style={{display:"block",width:"100%",padding:"11px",borderRadius:10,border:`1.5px dashed ${C.accent}`,background:"#fff8fa",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer",textAlign:"center",boxSizing:"border-box"}}>
+          <label style={{display:"block",width:"100%",padding:"11px",borderRadius:10,border:`1.5px dashed ${C.accent}`,background:"#fff8fa",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer",textAlign:"center",boxSizing:"border-box",marginBottom:14}}>
             📥 选择备份文件恢复
             <input type="file" accept=".json" onChange={importData} style={{display:"none"}} />
           </label>
+
+          {/* 分割线 */}
+          <div style={{height:1,background:"#f0e8e0",margin:"4px 0 14px"}} />
+
+          {/* 清除数据 - 在同一个卡片内 */}
+          <div style={{fontSize:13,fontWeight:900,color:"#c03040",marginBottom:6}}>🗑️ 清除本设备数据</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.6}}>
+            删除本浏览器中保存的全部记录，操作前建议先备份。
+          </div>
+          <button
+            onClick={()=>setShowClearConfirm(true)}
+            style={{width:"100%",padding:"11px",borderRadius:10,border:"2px solid #e03040",background:"#fff5f5",color:"#e03040",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+            清除所有本地数据
+          </button>
         </div>
 
         {/* 使用指南 */}
@@ -818,7 +852,36 @@ function App() {
 
       </div>
 
-      <BottomNav page={page} navigate={navigate} prevPage={selAnniv?._prevPage} />
+      {showClearConfirm && (
+        <div style={{position:"fixed",inset:0,background:"#1a3a3888",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200}}
+          onClick={()=>setShowClearConfirm(false)}>
+          <div style={{background:"#faf7f2",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,padding:"24px 20px 48px",border:"2px solid #ffcccc",borderBottom:"none",boxShadow:"0 -4px 0 0 #ffcccc"}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:16,fontWeight:900,color:"#c03040"}}>⚠️ 确认清除所有数据</div>
+              <button onClick={()=>setShowClearConfirm(false)} style={{background:"#fff5f5",border:"2px solid #ffb8b8",color:"#e03040",fontSize:16,cursor:"pointer",width:32,height:32,borderRadius:8,fontWeight:900,lineHeight:1}}>✕</button>
+            </div>
+            <div style={{background:"#fff5f5",border:"1.5px solid #ffb8b8",borderRadius:12,padding:"14px 16px",marginBottom:14,fontSize:13,color:"#c03040",lineHeight:1.7}}>
+              此操作将删除本浏览器中保存的<strong>全部演出、生日、纪念日和团体标签</strong>记录，且<strong>无法恢复</strong>。
+            </div>
+            <div style={{background:"#fffbee",border:"1.5px solid #f0d060",borderRadius:12,padding:"12px 16px",marginBottom:20,fontSize:12,color:"#8a7020",lineHeight:1.75}}>
+              <div style={{fontWeight:900,marginBottom:4}}>💡 注意</div>
+              <div>· LiveLog 数据仅存在<strong>当前浏览器</strong>中</div>
+              <div>· 同一台手机换不同浏览器（Safari→Chrome）数据不互通</div>
+              <div>· 建议清除前先点「下载备份文件」保存一份</div>
+            </div>
+            <button onClick={doClearAll}
+              style={{width:"100%",padding:"13px",borderRadius:12,border:"none",background:"linear-gradient(135deg,#e03040,#b02030)",color:"#fff",fontSize:15,fontWeight:900,cursor:"pointer",marginBottom:10,boxShadow:"0 4px 0 0 #b0203050"}}>
+              确认清除全部数据
+            </button>
+            <button onClick={()=>setShowClearConfirm(false)}
+              style={{width:"100%",padding:"11px",borderRadius:12,border:"2px solid #ff6bab",background:"#fff8fa",color:"#ff6bab",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 
@@ -1043,7 +1106,9 @@ function App() {
               ? [{ label:"已经", num:diffDays, unit:"天", daysToNext:0, isToday:diffDays===0 }]
               : [{ label:"还有", num:absDays, unit:"天开始", daysToNext:absDays, isToday:false }];
             const totalDaysLabel = isPast ? `${a.startDate} 起` : `${a.startDate} · 还有${absDays}天开始`;
-            return { ...a, _t:"anniversary", countdowns, minDaysToNext:diffDays===0?0:isPast?0:absDays, diffDays, isPast, totalDaysLabel };
+            // 无重复纪念日：只有今天正好是起始日才置顶(0)，其余已过去的排到最末(9999)，未来的按剩余天数排
+            const noRepeatMin = diffDays===0 ? 0 : isPast ? 9999 : absDays;
+            return { ...a, _t:"anniversary", countdowns, minDaysToNext:noRepeatMin, diffDays, isPast, totalDaysLabel };
           }
 
           // 计算每种重复类型的倒计时
@@ -1227,7 +1292,7 @@ function App() {
               const isEv = modal==="add-event";
               const hasParsed = parsed?._type === (isEv?"event":"birthday");
               return (<>
-                <MHead title={isEv?"添加演出":"添加生日"} onClose={closeModal} fullPage />
+                <MHead title={isEv?"添加演出":"添加生日"} onClose={closeModal} fullPage accent={isEv?C.accent:"#f0a830"} />
 
                 {!hasParsed && (<>
 
@@ -1284,7 +1349,7 @@ function App() {
 
             {/* ── ADD ANNIVERSARY ── */}
             {modal==="add-anniv" && (<>
-              <MHead title="添加纪念日" onClose={closeModal} fullPage />
+              <MHead title="添加纪念日" onClose={closeModal} fullPage accent={C.teal} />
               <FF label="纪念日名称（如：第一次见面）" value={form.title||""} onChange={v=>setForm(f=>({...f,title:v}))} />
               <FF label="起始日期" value={form.startDate||""} onChange={v=>setForm(f=>({...f,startDate:v}))} type="date" />
               <div style={{marginBottom:12}}>
@@ -1678,6 +1743,32 @@ function App() {
             })()}
 
             {/* ── 重复确认 ── */}
+            {modal==="clear-confirm" && (<>
+              <MHead title="⚠️ 清除所有数据" onClose={closeModal} />
+              <div style={{background:"#fff5f5",border:"1.5px solid #ffb8b8",borderRadius:12,padding:"14px 16px",marginBottom:16,fontSize:13,color:"#c03040",lineHeight:1.7}}>
+                此操作将删除本浏览器中保存的<strong>全部演出、生日、纪念日和团体标签</strong>记录，且<strong>无法恢复</strong>。
+              </div>
+              <div style={{background:"#fffbee",border:"1.5px solid #f0d060",borderRadius:12,padding:"12px 16px",marginBottom:20,fontSize:12,color:"#8a7020",lineHeight:1.75}}>
+                <div style={{fontWeight:900,marginBottom:4}}>💡 注意</div>
+                <div>· LiveLog 数据仅存在<strong>当前浏览器</strong>中</div>
+                <div>· 换浏览器（Safari→Chrome）或换手机，数据不会自动同步</div>
+                <div>· 建议清除前先点「下载备份文件」保存一份</div>
+              </div>
+              <button onClick={()=>{
+                ["ic_events","ic_birthdays","ic_anniversaries","ic_groups"].forEach(k=>localStorage.removeItem(k));
+                Object.keys(localStorage).filter(k=>k.startsWith("ic_anniv_")).forEach(k=>localStorage.removeItem(k));
+                closeModal();
+                setEvents([]); setBirthdays([]); setAnnivs([]); setMyGroups([]);
+                navigate("splash");
+              }} style={{width:"100%",padding:"13px",borderRadius:12,border:"none",background:"linear-gradient(135deg,#e03040,#b02030)",color:"#fff",fontSize:15,fontWeight:900,cursor:"pointer",marginBottom:10,boxShadow:"0 4px 0 0 #b0203050"}}>
+                确认清除全部数据
+              </button>
+              <button onClick={()=>{closeModal(); setTimeout(()=>setModal("backup"),50);}}
+                style={{width:"100%",padding:"11px",borderRadius:12,border:`2px solid ${C.accent}`,background:"#fff8fa",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                先去备份数据
+              </button>
+            </>)}
+
             {modal==="dup-confirm" && dupTarget && (<>
               <MHead title="检测到重复" onClose={closeModal} />
               <div style={{background:"#fffaee",border:"2px solid #f0a830",borderRadius:10,padding:"14px",marginBottom:16}}>
@@ -1744,13 +1835,37 @@ function App() {
 }
 
 // ── Sub components ──
-function MHead({ title, onClose, fullPage }) {
-  if (fullPage) return (
-    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,paddingTop:8,paddingBottom:12,borderBottom:`2px solid ${C.border}`,position:"sticky",top:0,background:"#faf7f2",zIndex:10}}>
-      <button onClick={onClose} style={{background:"#fff",border:`2px solid ${C.border}`,color:C.muted,fontSize:18,cursor:"pointer",width:36,height:36,borderRadius:10,fontWeight:900,lineHeight:1,flexShrink:0}}>←</button>
-      <div style={{fontSize:17,fontWeight:900,color:C.text,fontFamily:"'Nunito','PingFang SC',sans-serif",flex:1}}>{title}</div>
-    </div>
-  );
+function MHead({ title, onClose, fullPage, accent }) {
+  if (fullPage) {
+    const ac = accent || "#ff6bab";
+    // 背景色：accent 加极淡透明度
+    const bgTint = ac === "#f0a830" ? "#fffbf0" : ac === "#5ecec8" ? "#f0fffe" : "#fff8fb";
+    const shadowColor = ac + "12";
+    return (
+      <div style={{
+        position:"sticky", top:0, zIndex:10, marginBottom:20,
+        background:`linear-gradient(135deg,${bgTint} 0%,#faf7f2 100%)`,
+        borderBottom:`2px solid ${C.border}`,
+        boxShadow:`0 2px 8px ${shadowColor}`,
+        padding:"14px 16px 12px",
+        display:"flex", justifyContent:"space-between", alignItems:"center",
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{width:4,height:20,borderRadius:2,background:ac}} />
+          <div style={{fontSize:17,fontWeight:900,color:C.text,fontFamily:"'Nunito','PingFang SC',sans-serif",letterSpacing:.5}}>{title}</div>
+        </div>
+        <button onClick={onClose} style={{
+          background:`linear-gradient(135deg,${bgTint},#faf7f2)`,
+          border:`2px solid ${ac}`,color:ac,
+          fontSize:15,cursor:"pointer",width:34,height:34,
+          borderRadius:10,fontWeight:900,lineHeight:1,
+          boxShadow:`0 2px 0 0 ${ac}33`,
+          display:"flex",alignItems:"center",justifyContent:"center",
+        }}>✕</button>
+      </div>
+    );
+  }
+  // 普通弹窗 header（不变）
   return (
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
       <div style={{fontSize:16,fontWeight:900,color:C.text,fontFamily:"'Nunito','PingFang SC',sans-serif"}}>{title}</div>
