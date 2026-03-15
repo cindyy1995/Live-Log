@@ -108,137 +108,136 @@ function regexParseEvent(rawText) {
   // ── 日期 ──
   let date = "";
   const d4 = text.match(/(\d{4})[.\/年](\d{1,2})[.\/月](\d{1,2})/);
-  const activityDateM = text.match(/(?:线下活动时间|活动时间|演出时间|演出日期)[^\d]*(\d{1,2})[月.](\d{1,2})/);
-  const d2all = [...text.matchAll(/(?<!\d)(\d{1,2})[.月\/](\d{1,2})[日号]?(?!\d)/g)];
   if (d4) {
-    // 忽略文本中的年份，统一用当年
     date = `${d4[1]}-${String(d4[2]).padStart(2,"0")}-${String(d4[3]).padStart(2,"0")}`;
-  } else if (activityDateM) {
-    const mo = parseInt(activityDateM[1]), dy = parseInt(activityDateM[2]);
-    date = `${currentYear}-${String(mo).padStart(2,"0")}-${String(dy).padStart(2,"0")}`;
-  } else if (d2all.length > 0) {
-    let best = null;
-    for (const m of d2all) {
-      const mo = parseInt(m[1]), dy = parseInt(m[2]);
-      if (mo < 1 || mo > 12 || dy < 1 || dy > 31) continue;
-      const candidate = `${currentYear}-${String(mo).padStart(2,"0")}-${String(dy).padStart(2,"0")}`;
-      if (!best || candidate > best) best = candidate;
+  } else {
+    const actM = text.match(/(?:线下活动时间|活动时间|演出时间|演出日期|日期时间)[^\d]*(\d{1,2})[月.](\d{1,2})/);
+    if (actM) {
+      date = `${currentYear}-${String(actM[1]).padStart(2,"0")}-${String(actM[2]).padStart(2,"0")}`;
+    } else {
+      const d2all = [...text.matchAll(/(?<!\d)(\d{1,2})[.月\/](\d{1,2})[日号]?(?!\d)/g)];
+      let best = null;
+      for (const m of d2all) {
+        const mo = parseInt(m[1]), dy = parseInt(m[2]);
+        if (mo < 1 || mo > 12 || dy < 1 || dy > 31) continue;
+        const candidate = `${currentYear}-${String(mo).padStart(2,"0")}-${String(dy).padStart(2,"0")}`;
+        if (!best || candidate > best) best = candidate;
+      }
+      if (best) date = best;
     }
-    if (best) date = best;
   }
 
   // ── 时间 ──
   let time = "", endTime = "";
+  const lines = text.split("\n");
+  const skipLineRe = /特典|握手|签名|cheki|チェキ|上架|下架|购票|开售|限购|预售|票务|微店|星空间/i;
 
-  // 优先找"演出时间"标签行，支持 | ｜ : ： 作为分隔符
-  const showLine = text.match(/演出时间\s*[|｜:：]?\s*(\d{1,2}):(\d{2})\s*[~\-—]\s*(\d{1,2}):(\d{2})/);
-  if (showLine) {
-    time    = `${String(showLine[1]).padStart(2,"0")}:${showLine[2]}`;
-    endTime = `${String(showLine[3]).padStart(2,"0")}:${showLine[4]}`;
-  } else {
-    const startM = text.match(/(?:START|SHOW|开演)[^\d]*(\d{1,2}):(\d{2})/i);
-    const endM   = text.match(/(?:END|结束)[^\d]*(\d{1,2}):(\d{2})/i);
-    if (startM) {
-      time = `${String(startM[1]).padStart(2,"0")}:${startM[2]}`;
-      if (endM) endTime = `${String(endM[1]).padStart(2,"0")}:${endM[2]}`;
+  // 1. 演出/入场/START 明确标注行
+  const showTimeLine = text.match(/(?:演出|SHOW|开演|入场|START)\s*[:|｜]?\s*(\d{1,2}):(\d{2})\s*[~～\-—]\s*(\d{1,2}):(\d{2})/i);
+  if (showTimeLine) {
+    time    = `${String(showTimeLine[1]).padStart(2,"0")}:${showTimeLine[2]}`;
+    endTime = `${String(showTimeLine[3]).padStart(2,"0")}:${showTimeLine[4]}`;
+  }
+  // 2. 「日期时间丨」行里的时间
+  if (!time) {
+    const dtM = text.match(/(?:日期时间|时间)[|｜:：]\s*[\d.\/年月日周\s一二三四五六日]+\s+(\d{1,2}):(\d{2})\s*[～~\-—]?\s*(\d{1,2})?:?(\d{2})?/);
+    if (dtM) {
+      time = `${String(dtM[1]).padStart(2,"0")}:${dtM[2]}`;
+      if (dtM[3]) endTime = `${String(dtM[3]).padStart(2,"0")}:${dtM[4]||"00"}`;
     }
-    if (!time) {
-      const openStart = text.match(/OPEN\s*(\d{1,2}):(\d{2})[^\d]+START\s*(\d{1,2}):(\d{2})/i);
-      if (openStart) {
-        time = `${String(openStart[3]).padStart(2,"0")}:${openStart[4]}`;
+  }
+  // 3. 🕒 行里的时间
+  if (!time) {
+    const clockM = text.match(/🕒\s*[\d\/年月日\s周一二三四五六日]+\s+(\d{1,2}):(\d{2})/);
+    if (clockM) time = `${String(clockM[1]).padStart(2,"0")}:${clockM[2]}`;
+  }
+  // 4. 日期同行的时间
+  if (!time) {
+    const dtSameM = text.match(/\d{4}[.\/]\d{1,2}[.\/]\d{1,2}[^\n\d]*(\d{1,2}):(\d{2})/);
+    if (dtSameM) time = `${String(dtSameM[1]).padStart(2,"0")}:${dtSameM[2]}`;
+  }
+  // 5. 通用扫描
+  if (!time) {
+    for (const line of lines) {
+      if (skipLineRe.test(line)) continue;
+      const tm = line.match(/(\d{1,2}):(\d{2})\s*[~～\-—]\s*(\d{1,2}):(\d{2})/);
+      if (tm) {
+        time    = `${String(tm[1]).padStart(2,"0")}:${tm[2]}`;
+        endTime = `${String(tm[3]).padStart(2,"0")}:${tm[4]}`;
+        if (/演出/.test(line)) break;
       }
     }
-    if (!time) {
-      // 两遍扫描：第一遍只要有时间范围（含~）且不是特典行的；第二遍接受只有开始时间的行
-      const lines = text.split("\n");
-      const skipLine = /特典|握手|签名|cheki|チェキ|上架|下架|购票|开售|限购/i;
-      const dateLineRe = /\d{4}[.\/年]/; // 含年份的行是日期行，跳过
-      // 第一遍：找时间范围行（优先"演出"标签行）
-      for (const line of lines) {
-        if (skipLine.test(line) || dateLineRe.test(line)) continue;
-        const tm = line.match(/(\d{1,2}):(\d{2})\s*[~\-—]\s*(\d{1,2}):(\d{2})/);
-        if (tm) {
-          // 如果这一行含"演出"字样，优先级更高；否则也接受
-          time    = `${String(tm[1]).padStart(2,"0")}:${tm[2]}`;
-          endTime = `${String(tm[3]).padStart(2,"0")}:${tm[4]}`;
-          if (/演出/.test(line)) break; // 有"演出"标签就立刻用
-          // 没有标签则继续找，如果下面有更好的"演出"标签行可以覆盖
-        }
-      }
-      // 第二遍：如果还没找到，退而求其次取第一个不是日期行的单个时间
-      if (!time) {
-        for (const line of lines) {
-          if (skipLine.test(line) || dateLineRe.test(line)) continue;
-          const sm = line.match(/(\d{1,2}):(\d{2})/);
-          if (sm) { time = `${String(sm[1]).padStart(2,"0")}:${sm[2]}`; break; }
-        }
-      }
+  }
+  if (!time) {
+    for (const line of lines) {
+      if (skipLineRe.test(line)) continue;
+      const sm = line.match(/(\d{1,2}):(\d{2})/);
+      if (sm) { time = `${String(sm[1]).padStart(2,"0")}:${sm[2]}`; break; }
     }
   }
 
   // ── 场馆 ──
   let venue = "";
-  const venuePatterns = [
+  const cleanVenue = (v) => {
+    v = v.split("\n")[0].trim();
+    v = v.replace(/[\u{1F300}-\u{1FFFF}]/u, "\x00").split("\x00")[0];
+    // 截断票价、演出/特典说明、购票关键词
+    v = v.split(/[🎫🎟💰]|预售票|当日票|购票|¥|\d+R[^M]|\s+演出[&＆和]?特典|\s+特典\s|②/)[0].trim();
+    v = v.replace(/\s*[（(].*/,"").trim();
+    // 「·上海」或「·第一百货」这种附加说明去掉，保留前面的场馆主体名
+    const dotPart = v.match(/^([^··•·]+)[··•·]/);
+    if (dotPart && dotPart[1].length >= 2) v = dotPart[1].trim();
+    return v;
+  };
+
+  const venueLabelPatterns = [
+    /🏬\s*([^\n]+)/,
+    /⛳\s*([^\n]+)/,
     /📍\s*([^\n]+)/,
     /🏟️?\s*([^\n]+)/,
-    /🔴\s*([^\n]+)/,
-    /🎐\s*([^\n]+)/,
     /🏠\s*([^\n]+)/,
     /🎪\s*([^\n]+)/,
-    /地[点址场]\s*[:：|｜]\s*([^\n]+)/,
-    /(?:演出)?地点\s*[:：|｜]\s*([^\n]+)/,
-    /会场\s*[:：|｜]\s*([^\n]+)/,
-    /场馆\s*[:：|｜]\s*([^\n]+)/,
+    /(?<!时间)(?:活动|演出)?地[点址场]\s*[|｜:：]\s*([^\n]+)/,
+    /会场\s*[|｜:：]\s*([^\n]+)/,
+    /场馆\s*[|｜:：]\s*([^\n]+)/,
     /venue\s*[:：]\s*([^\n]+)/i,
-    // 新增：@ 开头的场馆名（如 @Cave Art Venue）
     /^@([^\n@]+)/m,
-    // 新增：at 城市·场馆 或 at 场馆 格式
-    /\bat\s+[^\n··•·]*[··•·]\s*([^\n]+)/i,
-    /\bat\s+(?:上海|北京|广州|深圳|成都|杭州|武汉|南京|西安|重庆|天津|苏州)[··•·\s]*([^\n]+)/i,
   ];
-  for (const p of venuePatterns) {
+  for (const p of venueLabelPatterns) {
     const m = text.match(p);
     if (m) {
-      let v = m[1].split("\n")[0].trim();
-      // 截断到下一个 emoji、票价、购票关键词
-      v = v.replace(/[\u{1F300}-\u{1FFFF}]/u, '\x00').split('\x00')[0];
-      v = v.split(/[🎫🎟💰]|预售票|当日票|购票|¥|\d+R\+/)[0].trim();
-      // 如果包含完整地址（市区路），提取最后的场馆部分
-      const venuePart = v.match(/[•·]\s*(.+)$/);
-      if (venuePart) {
-        v = venuePart[1].trim();
-      } else {
-        // 去掉"上海市长宁区新华路街道"等行政地址前缀，保留场馆名
-        v = v.replace(/^[\u4e00-\u9fa5]+[市省]\S{1,10}[市]\S{0,10}[区县]\S*[路街道号]\S{0,10}/, "").trim();
-        v = v.replace(/^[\u4e00-\u9fa5]+[区县]\S{0,15}[路街道号]\S{0,6}/, "").trim();
-      }
-      v = v.replace(/\s*[\(（].*/, "").trim();
-      if (v.length >= 2) { venue = v; break; }
+      let v = cleanVenue(m[1]);
+      // ⛳/活动地点 行可能前缀城市名，去掉
+      v = v.replace(/^(?:上海|北京|广州|深圳|成都|杭州|武汉|南京|西安|重庆|天津|苏州)\s*/,"").trim();
+      if (v.length >= 2 && v.length < 35) { venue = v; break; }
     }
   }
-  // 兜底1：含 LIVE / Venue / 空间 / 剧场 等关键词的行
+
+  // 「时间地点丨」合并行：去掉日期+星期+城市前缀，提取地点
   if (!venue) {
-    for (const line of text.split("\n")) {
-      if (/LIVE|livehouse|live\s*house|现场|剧场|Theater|theater|Hall|hall|Studio|studio|Venue|venue|空间|ライブ|アイドル/i.test(line) && line.length < 80) {
-        let v = line.replace(/^[\s\u2600-\u27BF\uD83C\uD000-\uD83D\uDFFF\uD83E\uD000-\uD83E\uDFFF●•·@]+/, "").trim();
-        const vp = v.match(/[•·]\s*(.+)$/);
-        if (vp) v = vp[1].trim();
-        v = v.replace(/\s*[\(（].*/, "").trim();
-        if (v) { venue = v; break; }
-      }
+    const tvLineM = text.match(/(?:时间地点|地点时间)[|｜:：]\s*([^\n]+)/);
+    if (tvLineM) {
+      let v = tvLineM[1]
+        .replace(/\d{4}[.\/]\d{1,2}[.\/]\d{1,2}\s*/,"")  // 去日期
+        .replace(/周[一二三四五六日]\s*/,"")                     // 去星期
+        .replace(/\d{1,2}:\d{2}(?:\s*[~～\-—]\s*\d{1,2}:\d{2})?\s*/,"") // 去时间
+        .trim();
+      // 如果剩余内容开头是城市名，去掉城市前缀
+      v = v.replace(/^(?:上海|北京|广州|深圳|成都|杭州|武汉|南京|西安|重庆|天津|苏州)(?=\S)/,"").trim();
+      v = v.replace(/\s*[（(].*/,"").trim();
+      if (v.length >= 2 && v.length < 40) { venue = v; }
     }
   }
-  // 兜底2：地址行后面紧跟的场馆名（如"上海市长宁区…\nIMShanghai长宁国际南区"）
+
+  // 兜底：关键词行
   if (!venue) {
-    const addrLineRe = /^[\u4e00-\u9fa5]{2,4}[市省][\u4e00-\u9fa5]{2,6}[区县]/;
-    const lines2 = text.split("\n");
-    for (let i = 0; i < lines2.length - 1; i++) {
-      if (addrLineRe.test(lines2[i].trim())) {
-        const next = lines2[i+1].trim();
-        if (next && next.length >= 2 && next.length < 40 && !/^\d/.test(next)) {
-          venue = next.replace(/\s*[\(（].*/, "").trim();
-          break;
-        }
+    for (const line of lines) {
+      if (skipLineRe.test(line)) continue;
+      if (/LIVE|livehouse|现场|剧场|Theater|Hall|Studio|Venue|空间|大世界|广场|商场|咖啡|cafe|盒子/i.test(line) && line.length < 80) {
+        let v = line.replace(/^[\s\u2600-\u27BF\uD83C\uD000-\uD83D\uDFFF\uD83E\uD000-\uD83E\uDFFF●•·@\u{1F300}-\u{1FFFF}]+/u,"").trim();
+        v = cleanVenue(v);
+        v = v.replace(/^(?:上海|北京|广州|深圳|成都|杭州|武汉|南京|西安|重庆|天津|苏州)\s*/,"").trim();
+        if (v && v.length >= 2 && v.length < 40) { venue = v; break; }
       }
     }
   }
@@ -251,8 +250,7 @@ function regexParseEvent(rawText) {
   // ── 演出名称 ──
   let title = "";
   for (const line of rawText.split("\n")) {
-    // 剥离行首所有 emoji（包含代理对）、符号、@等
-    const clean = line
+    let clean = line
       .replace(/^[\s\uD800-\uDFFF\u2600-\u27BF\uFE00-\uFE0F\u20D0-\u20FF●•·#＃★☆◆◇■□▶▷→✦@！!]+/g, "")
       .replace(/^\uD83C[\uDC00-\uDFFF]|^\uD83D[\uDC00-\uDFFF]|^\uD83E[\uDC00-\uDFFF]/g, "")
       .trim();
@@ -260,34 +258,77 @@ function regexParseEvent(rawText) {
     if (/^(https?:|转发|评论|点赞|@|查看更多)/.test(clean)) continue;
     if (/^\d{4}[.\/年]\d{1,2}/.test(normalize(clean))) continue;
     if (/^\d{1,2}:\d{2}/.test(normalize(clean))) continue;
-    title = clean;
-    break;
+    if (/^(?:参演团体|出席人员|日期时间|时间地点|活动地点|演出地点|票务)/.test(clean)) continue;
+    // 清理尾部 emoji 和说明词
+    clean = clean.replace(/[\u{1F300}-\u{1FFFF}\u2600-\u27BF]+\s*(?:情报更新|🔎|\s)*$/gu,"").trim();
+    if (clean.length >= 2) { title = clean; break; }
   }
 
   // ── 团体名 ──
   let group = "";
-  // 优先：明确标注的参演团体列表
-  const groupListM = text.match(/(?:参演|演出|参与|出演|嘉宾)?团体[：:]\s*([\s\S]+?)(?=🕰|🎫|🔴|🏟|📍|演出时间|特典时间|开票|$|\n\n)/);
-  if (groupListM) {
-    // 清理 emoji、空格，按常见分隔符拆分
-    const raw = groupListM[1];
-    const names = raw
-      .replace(/[\u{1F300}-\u{1FFFF}]/gu, " ")  // 去掉 emoji（基本平面外）
-      .replace(/[\u2600-\u27BF]/g, " ")           // 去掉基本平面内 emoji（❄☆★等）
-      .replace(/\uFE0F/g, "")                      // 去掉 variation selector
-      .split(/[、,，&+\/\s]+/)
-      .map(s => s.trim())
-      .filter(s => s.length >= 2 && s.length <= 20);
+
+  // 1. 「参演团体丨」或「出席人员丨」行
+  const attendM = text.match(/(?:参演团体|出席人员|演出团体|参演|出席)[|｜:：]\s*([^\n]+)/);
+  if (attendM) {
+    const names = attendM[1]
+      .replace(/[\u{1F300}-\u{1FFFF}]/gu," ").replace(/[\u2600-\u27BF]/g," ")
+      .replace(/@\S+/g,"").split(/[、,，&+\/\s]+/)
+      .map(s=>s.trim()).filter(s=>s.length>=2&&s.length<=20);
     if (names.length) group = names.join(",");
   }
-  // 退而求其次：从活动名称推断（如"XX周年演唱会"）
+
+  // 2. 「⚪︎⚪︎参演团体⚪︎⚪︎」或「参演团体」section 后的 emoji 列表（每行一个团体）
+  if (!group) {
+    // 找到「参演团体」标题行的位置，然后取后续连续非空行
+    const sectionIdx = rawText.search(/参演团体/);
+    if (sectionIdx >= 0) {
+      const afterSection = rawText.slice(sectionIdx);
+      const bodyM = afterSection.match(/参演团体[^\n]*\n([\s\S]+?)(?=\n\n|⚪|$)/);
+      if (bodyM) {
+        const names = bodyM[1].split("\n")
+          .map(l => {
+            // 去掉行首 emoji（代理对和基本平面）、符号、@账号
+            let s = l.replace(/^[\s\u2600-\u27BF\uFE00-\uFE0F●•·⚪︎]+/g,"");
+            s = s.replace(/^(?:\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uD83E[\uDC00-\uDFFF])/g,"");
+            s = s.replace(/@\S+/g,"").trim();
+            return s;
+          })
+          .filter(s => s.length >= 2 && s.length <= 25 && !/^[（(#『⚪]/.test(s) && !/^\d/.test(s));
+        if (names.length) group = names.join(",");
+      }
+    }
+  }
+
+  // 3. 通用「团体」标签
+  if (!group) {
+    const groupM = text.match(/(?:参演|演出|参与|出演|嘉宾)?团体[：:]\s*([\s\S]+?)(?=🕰|🎫|🔴|🏟|📍|演出时间|特典时间|开票|$|\n\n)/);
+    if (groupM) {
+      const names = groupM[1]
+        .replace(/[\u{1F300}-\u{1FFFF}]/gu," ").replace(/[\u2600-\u27BF]/g," ")
+        .replace(/@\S+/g,"").split(/[、,，&+\/\s]+/)
+        .map(s=>s.trim()).filter(s=>s.length>=2&&s.length<=20);
+      if (names.length) group = names.join(",");
+    }
+  }
+
+  // 4. #团体名[超话]# 格式（定期公演常见）
+  if (!group) {
+    const chahuaMatches = [...rawText.matchAll(/#([^#\[\]]+?)(?:\[超话\])?#/g)];
+    const names = chahuaMatches
+      .map(m => m[1].trim())
+      .filter(s => s.length >= 2 && s.length <= 20 && !/^[oap学园PUPPIES_FROM]/i.test(s) && !/超话/.test(s));
+    if (names.length) group = names.join(",");
+  }
+
+  // 5. 兜底从标题推断
   if (!group) {
     const gm = text.match(/(.{2,15}?)(?:一周年|周年|演唱会|巡演|Live Tour|idol live)/i);
-    if (gm) group = gm[1].replace(/^[\s\uD800-\uDFFF\u2600-\u27BF]+/, "").trim();
+    if (gm) group = gm[1].replace(/^[\s\uD800-\uDFFF\u2600-\u27BF『「【]+/,"").trim();
   }
 
   return { title, date, time, endTime, venue, city, group };
 }
+
 
 function regexParseBirthday(rawText) {
   const text = normalize(rawText);
@@ -408,10 +449,13 @@ function App() {
   const [dupTarget, setDupTarget]     = useState(null);
   const [importCount, setImportCount] = useState({});
   const [statsYear, setStatsYear]     = useState("all");
+  const [isExporting, setIsExporting] = useState(false);
   const [exportJson, setExportJson]   = useState("");
   const [myGroups, setMyGroups]       = useState(() => loadLS("ic_groups", []));
   const [newGroup, setNewGroup]       = useState("");
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [editingGroup, setEditingGroup] = useState(null);
+  const [editGroupVal, setEditGroupVal] = useState("");
 
   useEffect(() => localStorage.setItem("ic_events", JSON.stringify(events)), [events]);
   useEffect(() => localStorage.setItem("ic_birthdays", JSON.stringify(birthdays)), [birthdays]);
@@ -724,6 +768,29 @@ function App() {
   );
 
   // doClearAll 函数（顶层定义）
+  // 团体重命名：同步修改所有演出/生日/纪念日的 group 字段
+  const renameGroup = (oldName, newName) => {
+    const newN = newName.trim();
+    if (!newN || newN === oldName) return;
+    // 更新 myGroups
+    setMyGroups(p => p.map(g => g === oldName ? newN : g));
+    // 更新 events
+    setEvents(p => p.map(e => ({
+      ...e,
+      group: e.group ? e.group.split(",").map(g=>g.trim()===oldName?newN:g.trim()).join(",") : e.group
+    })));
+    // 更新 birthdays
+    setBirthdays(p => p.map(b => ({
+      ...b,
+      group: b.group ? b.group.split(",").map(g=>g.trim()===oldName?newN:g.trim()).join(",") : b.group
+    })));
+    // 更新 anniversaries
+    setAnnivs(p => p.map(a => ({
+      ...a,
+      group: a.group ? a.group.split(",").map(g=>g.trim()===oldName?newN:g.trim()).join(",") : a.group
+    })));
+  };
+
   const doClearAll = () => {
     ["ic_events","ic_birthdays","ic_anniversaries","ic_groups"].forEach(k=>localStorage.removeItem(k));
     Object.keys(localStorage).filter(k=>k.startsWith("ic_anniv_")).forEach(k=>localStorage.removeItem(k));
@@ -747,12 +814,15 @@ function App() {
           <div style={{fontSize:15,fontWeight:900,marginBottom:3,color:C.text}}>🎤 我关注的团体</div>
           <div style={{fontSize:12,color:C.muted,marginBottom:14,lineHeight:1.5,fontWeight:700}}>添加后在填写演出时可以快速选择</div>
           {myGroups.length===0 && <div style={{textAlign:"center",color:C.muted,padding:"12px 0",fontSize:13}}>还没有添加团体</div>}
+          {/* 团体标签列表 - 横排气泡，点铅笔编辑 */}
           <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
             {myGroups.map((g,i)=>(
-              <div key={g} style={{display:"inline-flex",alignItems:"center",gap:5,background:"#fff0f8",border:`1.5px solid ${C.accent}44`,borderRadius:20,padding:"6px 12px 6px 14px"}}>
+              <div key={g} style={{display:"inline-flex",alignItems:"center",gap:4,background:"#fff0f8",border:`1.5px solid ${C.accent}44`,borderRadius:20,padding:"6px 8px 6px 14px"}}>
                 <span style={{fontSize:13,fontWeight:700,color:C.text}}>{g}</span>
+                <button onClick={()=>{setEditingGroup(g);setEditGroupVal(g);}}
+                  style={{background:"none",border:"none",color:C.teal,fontSize:12,cursor:"pointer",lineHeight:1,padding:"0 3px",opacity:.8}}>✎</button>
                 <button onClick={()=>setMyGroups(p=>p.filter((_,j)=>j!==i))}
-                  style={{background:"none",border:"none",color:C.muted,fontSize:14,cursor:"pointer",lineHeight:1,padding:0,display:"flex",alignItems:"center",fontWeight:900}}>×</button>
+                  style={{background:"none",border:"none",color:C.muted,fontSize:14,cursor:"pointer",lineHeight:1,padding:"0 2px",fontWeight:900}}>×</button>
               </div>
             ))}
           </div>
@@ -852,6 +922,43 @@ function App() {
         </div>
 
       </div>
+
+      {/* 编辑团体弹窗 */}
+      {editingGroup !== null && (
+        <div style={{position:"fixed",inset:0,background:"#1a3a3888",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200}}
+          onClick={()=>setEditingGroup(null)}>
+          <div style={{background:"#faf7f2",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,padding:"24px 20px 48px",border:"2px solid #e8e0d0",borderBottom:"none",boxShadow:"0 -4px 0 0 #5ecec855"}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:16,fontWeight:900,color:C.text}}>编辑团体标签</div>
+              <button onClick={()=>setEditingGroup(null)} style={{background:"#fff8ee",border:"2px solid #f0a830",color:"#f0a830",fontSize:15,cursor:"pointer",width:32,height:32,borderRadius:8,fontWeight:900,lineHeight:1}}>✕</button>
+            </div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:12}}>
+              修改后将同步更新所有关联的演出、生日和纪念日记录
+            </div>
+            <input value={editGroupVal} onChange={e=>setEditGroupVal(e.target.value)}
+              autoFocus
+              onKeyDown={e=>{
+                if(e.key==="Enter"&&editGroupVal.trim()){renameGroup(editingGroup,editGroupVal);setEditingGroup(null);}
+                if(e.key==="Escape")setEditingGroup(null);
+              }}
+              style={{width:"100%",background:"#fff",border:`2px solid ${C.teal}`,borderRadius:10,padding:"11px 14px",fontSize:15,fontWeight:700,color:C.text,outline:"none",boxSizing:"border-box",marginBottom:12}} />
+            <button onClick={()=>{if(editGroupVal.trim()){renameGroup(editingGroup,editGroupVal);setEditingGroup(null);}}}
+              disabled={!editGroupVal.trim()||editGroupVal.trim()===editingGroup}
+              style={{width:"100%",padding:"12px",borderRadius:10,border:"none",
+                background:(!editGroupVal.trim()||editGroupVal.trim()===editingGroup)?"#e8e0d0":"linear-gradient(135deg,#5ecec8,#3ab5ae)",
+                color:(!editGroupVal.trim()||editGroupVal.trim()===editingGroup)?"#b0a898":"#fff",
+                fontSize:14,fontWeight:900,cursor:(!editGroupVal.trim()||editGroupVal.trim()===editingGroup)?"default":"pointer",
+                marginBottom:8,boxShadow:(!editGroupVal.trim()||editGroupVal.trim()===editingGroup)?"none":"0 4px 0 0 #3ab5ae44"}}>
+              保存修改
+            </button>
+            <button onClick={()=>setEditingGroup(null)}
+              style={{width:"100%",padding:"11px",borderRadius:10,border:`2px solid ${C.border}`,background:"#fff",color:C.muted,fontSize:13,fontWeight:700,cursor:"pointer"}}>
+              取消
+            </button>
+          </div>
+        </div>
+      )}
 
       {showClearConfirm && (
         <div style={{position:"fixed",inset:0,background:"#1a3a3888",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200}}
@@ -1336,8 +1443,10 @@ function App() {
                     <FF label="演出开始" value={form.time||""} onChange={v=>setForm(f=>({...f,time:v}))} type="time" />
                     <FF label="演出结束" value={form.endTime||""} onChange={v=>setForm(f=>({...f,endTime:v}))} type="time" />
                   </div>
-                  <FF label="演出场馆" value={form.venue||""} onChange={v=>setForm(f=>({...f,venue:v}))} />
-                  <FF label="城市" value={form.city||""} onChange={v=>setForm(f=>({...f,city:v}))} />
+                  <VenueInput label="演出场馆" value={form.venue||""} onChange={v=>setForm(f=>({...f,venue:v}))}
+                    history={[...new Set(events.map(e=>e.venue).filter(Boolean))]} />
+                  <VenueInput label="城市" value={form.city||""} onChange={v=>setForm(f=>({...f,city:v}))}
+                    history={[...new Set(events.map(e=>e.city).filter(Boolean))]} />
                   <GroupPicker value={form.group||""} onChange={v=>setForm(f=>({...f,group:v}))} myGroups={myGroups} />
                   <SBtn onClick={saveEvent} disabled={!hasParsed && !(form.title&&form.date)} />
                 </>) : (<>
@@ -1529,18 +1638,24 @@ function App() {
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
+                setIsExporting(false);
               };
               const exportImg = () => {
                 const node = document.getElementById("stats-export-card");
                 if (!node) return;
-                if (window.html2canvas) {
-                  window.html2canvas(node, { backgroundColor:"#faf7f2", scale:2, useCORS:true, logging:false }).then(doExport);
-                } else {
-                  const s2 = document.createElement("script");
-                  s2.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-                  s2.onload = () => window.html2canvas(node, { backgroundColor:"#faf7f2", scale:2, useCORS:true, logging:false }).then(doExport);
-                  document.head.appendChild(s2);
-                }
+                // 先显示标题区，等 DOM 更新后再截图
+                setIsExporting(true);
+                const shoot = () => {
+                  if (window.html2canvas) {
+                    window.html2canvas(node, { backgroundColor:"#faf7f2", scale:2, useCORS:true, logging:false }).then(doExport);
+                  } else {
+                    const s2 = document.createElement("script");
+                    s2.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+                    s2.onload = () => window.html2canvas(node, { backgroundColor:"#faf7f2", scale:2, useCORS:true, logging:false }).then(doExport);
+                    document.head.appendChild(s2);
+                  }
+                };
+                setTimeout(shoot, 80); // 等待 React re-render
               };
 
               // 进度条行组件（inline）
@@ -1592,7 +1707,20 @@ function App() {
                 </div>
 
                 {/* 导出卡片区域 */}
-                <div id="stats-export-card" style={{background:"#faf7f2",borderRadius:16,padding:"0 2px 4px"}}>
+                <div id="stats-export-card" style={{background:"#faf7f2",borderRadius:20,padding:"20px 16px 16px",border:`3px solid ${C.border}`,boxShadow:"0 6px 0 0 #e8e0d0"}}>
+
+                  {/* 导出图片顶部标题 —— 仅导出时显示 */}
+                  {isExporting && (
+                    <div style={{paddingBottom:14,marginBottom:16,borderBottom:`2px solid ${C.border}`}}>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:800,letterSpacing:3,marginBottom:8}}>MY LIVE LOG</div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+                        <div style={{fontSize:32,fontWeight:900,fontFamily:"'Nunito','PingFang SC',sans-serif",lineHeight:1}}>
+                          <span style={{color:"#ff6bab"}}>我的</span><span style={{color:C.teal}}>LiveLog</span>
+                        </div>
+                        <div style={{fontSize:13,fontWeight:800,color:C.muted,paddingBottom:3}}>{titleStr}</div>
+                      </div>
+                    </div>
+                  )}
 
                   {s.total === 0
                     ? <div style={{textAlign:"center",color:C.muted,padding:"40px 0"}}>暂无演出记录 ✨</div>
@@ -1736,8 +1864,11 @@ function App() {
                     )}
 
                     {/* 页脚水印 */}
-                    <div style={{textAlign:"center",paddingTop:4,paddingBottom:2}}>
-                      <span style={{fontSize:10,color:C.muted,fontWeight:700,letterSpacing:2}}>✦ LiveLog · 地下偶像演出日历 ✦</span>
+                    <div style={{textAlign:"center",paddingTop:isExporting?14:8,paddingBottom:isExporting?10:4,
+                      borderTop:isExporting?`1.5px solid ${C.border}`:"none",marginTop:isExporting?8:0}}>
+                      <span style={{fontSize:isExporting?12:11,color:"#b0c4c2",fontWeight:700,letterSpacing:2}}>
+                        ✦ LiveLog · 地下偶像演出日程管理 ✦
+                      </span>
                     </div>
                   </>)}
                 </div>
@@ -2148,6 +2279,33 @@ function FF({ label, value, onChange, type="text" }) {
       <label style={{fontSize:11,color:C.teal,display:"block",marginBottom:3,fontWeight:900,letterSpacing:.5}}>{label}</label>
       <input type={type} value={value} onChange={e=>onChange(e.target.value)}
         style={{width:"100%",background:"#fff",border:`2px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box",outline:"none",fontWeight:700,WebkitAppearance:"none",appearance:"none",display:"block"}} />
+    </div>
+  );
+}
+
+// 带历史记录下拉的场馆输入框
+function VenueInput({ label="演出场馆", value, onChange, history=[] }) {
+  const [open, setOpen] = useState(false);
+  const filtered = history.filter(h => h && h !== value).slice(0,5);
+  return (
+    <div style={{marginBottom:10,position:"relative"}}>
+      <label style={{fontSize:11,color:C.teal,display:"block",marginBottom:3,fontWeight:900,letterSpacing:.5}}>{label}</label>
+      <input
+        value={value} onChange={e=>onChange(e.target.value)}
+        onFocus={()=>setOpen(true)} onBlur={()=>setTimeout(()=>setOpen(false),150)}
+        style={{width:"100%",background:"#fff",border:`2px solid ${open?C.teal:C.border}`,color:C.text,borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box",outline:"none",fontWeight:700,display:"block",transition:"border-color 0.15s"}} />
+      {open && filtered.length > 0 && (
+        <div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",border:`2px solid ${C.teal}`,borderTop:"none",borderRadius:"0 0 10px 10px",zIndex:50,boxShadow:"0 4px 12px rgba(0,0,0,0.1)",overflow:"hidden"}}>
+          {filtered.map((h,i) => (
+            <div key={i} onMouseDown={()=>onChange(h)}
+              style={{padding:"8px 12px",fontSize:13,color:C.text,fontWeight:700,cursor:"pointer",borderBottom:i<filtered.length-1?`1px solid ${C.border}`:"none",display:"flex",alignItems:"center",gap:8}}
+              onMouseEnter={e=>e.currentTarget.style.background="#f0fffe"}
+              onMouseLeave={e=>e.currentTarget.style.background=""}>
+              <span style={{fontSize:11,color:C.teal}}>↩</span>{h}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
