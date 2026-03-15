@@ -460,6 +460,7 @@ function App() {
   const [listFilterMonth, setListFilterMonth] = useState("all");
   const [listFilterGroups, setListFilterGroups] = useState([]); // 多选团体
   const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [statsPrevPage, setStatsPrevPage]   = useState("list");
 
   useEffect(() => localStorage.setItem("ic_events", JSON.stringify(events)), [events]);
   useEffect(() => localStorage.setItem("ic_birthdays", JSON.stringify(birthdays)), [birthdays]);
@@ -658,7 +659,7 @@ function App() {
     setUrlFetching(false);
   };
   const closeModal = () => { setModal(null); resetParse(); setEditItem(null); setEditType(null); };
-  const navigate   = (p) => { setPage(p); setModal(null); setEditItem(null); setEditType(null); setSelAnniv(null); resetParse(); };
+  const navigate   = (p, opts={}) => { setPage(p); setModal(null); setEditItem(null); setEditType(null); setSelAnniv(null); resetParse(); if(p==="stats") setStatsPrevPage(opts.from||"list"); };
   const goAnnivDetail = (r, from) => { setSelAnniv({...r, _prevPage: from || "annivs"}); setPage("anniv-detail"); };
 
   const saveEvent = () => {
@@ -1008,16 +1009,19 @@ function App() {
       {/* Header */}
       <div style={{ width:"100%", maxWidth:480, padding:"52px 20px 8px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
         <div>
-          <div onClick={()=> page==="anniv-detail" ? navigate(selAnniv?._prevPage || "annivs") : navigate("splash")} style={{cursor:"pointer",display:"inline-flex",alignItems:"center",gap:4,marginBottom:2}}>
+          <div onClick={()=> page==="anniv-detail" ? navigate(selAnniv?._prevPage || "annivs") : page==="stats" ? navigate(statsPrevPage||"list") : navigate("splash")} style={{cursor:"pointer",display:"inline-flex",alignItems:"center",gap:4,marginBottom:2}}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.teal} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
             {page==="anniv-detail"
               ? <span style={{fontSize:13,fontWeight:900,color:C.teal,fontFamily:"'Nunito',sans-serif"}}>{selAnniv?._prevPage==="calendar" ? "返回日历" : "返回纪念日"}</span>
+              : page==="stats"
+              ? <span style={{fontSize:13,fontWeight:900,color:C.teal,fontFamily:"'Nunito',sans-serif"}}>返回演出汇总</span>
               : <><span style={{fontSize:13,fontWeight:900,color:"#ff6bab",fontFamily:"'Nunito',sans-serif",letterSpacing:"-0.5px"}}>Live</span><span style={{fontSize:13,fontWeight:900,color:C.teal,fontFamily:"'Nunito',sans-serif",letterSpacing:"-0.5px"}}>Log</span></>
             }
           </div>
           <div style={{ fontFamily:"'Nunito','PingFang SC',sans-serif", fontSize:26, fontWeight:900, color:C.text }}>
             {page==="list" ? "演出汇总"
             : page==="annivs" ? "纪念日"
+            : page==="stats" ? "演出统计"
             : page==="anniv-detail" ? null
             : (
               <YMPicker year={year} month={month} setYear={setYear} setMonth={setMonth} setSelDay={setSelDay} prev={prev} next={next} />
@@ -1039,8 +1043,8 @@ function App() {
         .map(([lbl,fn,clr]) => (
           <button key={lbl} onClick={fn} style={{ background:"#fff", border:`2px solid ${clr}`, color:clr, borderRadius:20, padding:"6px 14px", fontSize:12, cursor:"pointer", whiteSpace:"nowrap", fontWeight:800, boxShadow:`0 2px 0 0 ${clr}44` }}>{lbl}</button>
         ))}
-        {page !== "annivs" && page !== "anniv-detail" && (
-          <button onClick={()=>setModal("stats")} style={{ background:"#fff", border:"2px solid #c97de8", color:"#c97de8", borderRadius:20, padding:"6px 12px", fontSize:12, cursor:"pointer", fontWeight:800, boxShadow:"0 2px 0 0 #c97de844", display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap", marginLeft:"auto", flexShrink:0 }}>
+        {page !== "annivs" && page !== "anniv-detail" && page !== "stats" && (
+          <button onClick={()=>navigate("stats",{from:"list"})} style={{ background:"#fff", border:"2px solid #c97de8", color:"#c97de8", borderRadius:20, padding:"6px 12px", fontSize:12, cursor:"pointer", fontWeight:800, boxShadow:"0 2px 0 0 #c97de844", display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap", marginLeft:"auto", flexShrink:0 }}>
             <svg width="14" height="14" viewBox="0 0 32 32"><path d="M16 2 A14 14 0 0 1 30 16 L16 16 Z" fill="#f0a830"/><path d="M30 16 A14 14 0 0 1 9 28 L16 16 Z" fill="#ff6bab"/><path d="M9 28 A14 14 0 0 1 2 12 L16 16 Z" fill="#c97de8"/><path d="M2 12 A14 14 0 0 1 16 2 L16 16 Z" fill="#5ecec8"/></svg>
             演出统计
           </button>
@@ -1316,7 +1320,258 @@ function App() {
         );
       })()}
 
-      {/* ── 纪念日汇总 视图 ── */}
+      {/* ── 演出统计 全屏页 ── */}
+      {page === "stats" && (() => {
+        const allYears = [...new Set(events.map(e => e.date?.slice(0,4)).filter(Boolean))].sort((a,b)=>b-a);
+              const filtered = statsYear === "all" ? events : events.filter(e => e.date?.startsWith(statsYear));
+              const ci = {}, ve = {}, gr = {};
+              filtered.forEach(e => {
+                if(e.city) ci[e.city]=(ci[e.city]||0)+1;
+                if(e.venue) ve[e.venue]=(ve[e.venue]||0)+1;
+                if(e.group) e.group.split(",").map(s=>s.trim()).filter(Boolean).forEach(g=>{ gr[g]=(gr[g]||0)+1; });
+              });
+              const s = { total: filtered.length, ci, ve, gr };
+              const topCity  = Object.entries(ci).sort((a,b)=>b[1]-a[1])[0];
+              const topVenue = Object.entries(ve).sort((a,b)=>b[1]-a[1])[0];
+              const topGroup = Object.entries(gr).sort((a,b)=>b[1]-a[1])[0];
+              const titleStr = statsYear === "all" ? "全部时间" : `${statsYear}年`;
+
+              // 导出为图片
+              const doExport = (canvas) => {
+                const dataUrl = canvas.toDataURL("image/png");
+                const a = document.createElement("a");
+                a.download = `LiveLog-演出统计-${titleStr}.png`;
+                a.href = dataUrl;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setIsExporting(false);
+              };
+              const exportImg = () => {
+                const node = document.getElementById("stats-export-card");
+                if (!node) return;
+                // 先显示标题区，等 DOM 更新后再截图
+                setIsExporting(true);
+                const shoot = () => {
+                  if (window.html2canvas) {
+                    window.html2canvas(node, { backgroundColor:"#faf7f2", scale:2, useCORS:true, logging:false }).then(doExport);
+                  } else {
+                    const s2 = document.createElement("script");
+                    s2.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+                    s2.onload = () => window.html2canvas(node, { backgroundColor:"#faf7f2", scale:2, useCORS:true, logging:false }).then(doExport);
+                    document.head.appendChild(s2);
+                  }
+                };
+                setTimeout(shoot, 80); // 等待 React re-render
+              };
+
+              // 进度条行组件（inline）
+              const BarRow = ({name, count, max, rank, barColor, textColor}) => (
+                <div style={{marginBottom:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                    <div style={{width:20,height:20,borderRadius:6,background:rank===0?"linear-gradient(135deg,#f0a830,#e8886a)":"#f0ece4",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      <span style={{fontSize:10,fontWeight:900,color:rank===0?"#fff":C.muted}}>{rank+1}</span>
+                    </div>
+                    <span style={{flex:1,fontSize:13,fontWeight:rank===0?800:600,color:rank===0?C.text:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}</span>
+                    <span style={{fontSize:13,fontWeight:800,color:textColor,flexShrink:0}}>{count}次</span>
+                  </div>
+                  <div style={{height:8,background:"#f0ece4",borderRadius:4,overflow:"hidden",marginLeft:28}}>
+                    <div style={{height:"100%",width:`${count/max*100}%`,background:barColor,borderRadius:4}}/>
+                  </div>
+                </div>
+              );
+
+              return (
+                <div style={{width:"100%",maxWidth:480,padding:"8px 20px 20px"}}>
+                {/* 年份切换 + 导出按钮同一行 */}
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:16}}>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",flex:1}}>
+                    {["all",...allYears].map(y => (
+                      <button key={y} onClick={()=>setStatsYear(y)}
+                        style={{padding:"5px 12px",borderRadius:20,border:`2px solid ${statsYear===y?(y==="all"?C.teal:C.accent):C.border}`,background:statsYear===y?(y==="all"?"#edfcfb":"#fff0f8"):"#fff",color:statsYear===y?(y==="all"?C.teal:C.accent):C.muted,fontSize:12,fontWeight:800,cursor:"pointer"}}>
+                        {y==="all"?"全部":y+"年"}
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={exportImg} title="导出图片" style={{width:36,height:36,borderRadius:10,background:"#f0ece4",border:`2px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+                      <polyline points="16 6 12 2 8 6"/>
+                      <line x1="12" y1="2" x2="12" y2="15"/>
+                    </svg>
+                  </button>
+                </div>
+
+                {/* 导出卡片区域 */}
+                <div id="stats-export-card" style={{background:"#faf7f2",borderRadius:20,padding:"20px 16px 16px",border:`3px solid ${C.border}`,boxShadow:"0 6px 0 0 #e8e0d0"}}>
+
+                  {/* 导出图片顶部标题 —— 仅导出时显示 */}
+                  {isExporting && (
+                    <div style={{paddingBottom:14,marginBottom:16,borderBottom:`2px solid ${C.border}`}}>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:800,letterSpacing:3,marginBottom:8}}>MY LIVE LOG</div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+                        <div style={{fontSize:32,fontWeight:900,fontFamily:"'Nunito','PingFang SC',sans-serif",lineHeight:1}}>
+                          <span style={{color:"#ff6bab"}}>我的</span><span style={{color:C.teal}}>LiveLog</span>
+                        </div>
+                        <div style={{fontSize:13,fontWeight:800,color:C.muted,paddingBottom:3}}>{titleStr}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {s.total === 0
+                    ? <div style={{textAlign:"center",color:C.muted,padding:"40px 0"}}>暂无演出记录 ✨</div>
+                    : (<>
+
+                    {/* Hero：三个大数字 */}
+                    <div style={{background:"linear-gradient(135deg,#ff6bab 0%,#c97de8 100%)",borderRadius:16,padding:"20px 20px 18px",marginBottom:14,boxShadow:"0 4px 0 0 #c0306044"}}>
+                      <div style={{fontSize:11,color:"rgba(255,255,255,0.75)",fontWeight:800,letterSpacing:2,marginBottom:4}}>LIVE LOG · {titleStr}</div>
+                      <div style={{fontSize:48,fontWeight:900,color:"#fff",lineHeight:1}}>{s.total}<span style={{fontSize:18,marginLeft:6,opacity:.9}}>场演出</span></div>
+                      <div style={{height:1,background:"rgba(255,255,255,0.2)",margin:"14px 0"}}/>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
+                        <div>
+                          <div style={{fontSize:9,color:"rgba(255,255,255,0.7)",fontWeight:700,letterSpacing:1,marginBottom:2}}>最常去城市</div>
+                          <div style={{fontSize:15,fontWeight:900,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{topCity?topCity[0]:"—"}</div>
+                          {topCity&&<div style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginTop:1}}>{topCity[1]}次</div>}
+                        </div>
+                        <div>
+                          <div style={{fontSize:9,color:"rgba(255,255,255,0.7)",fontWeight:700,letterSpacing:1,marginBottom:2}}>最常去场馆</div>
+                          <div style={{fontSize:13,fontWeight:900,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{topVenue?topVenue[0]:"—"}</div>
+                          {topVenue&&<div style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginTop:1}}>{topVenue[1]}次</div>}
+                        </div>
+                        <div>
+                          <div style={{fontSize:9,color:"rgba(255,255,255,0.7)",fontWeight:700,letterSpacing:1,marginBottom:2}}>最常看团体</div>
+                          <div style={{fontSize:13,fontWeight:900,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{topGroup?topGroup[0]:"—"}</div>
+                          {topGroup&&<div style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginTop:1}}>{topGroup[1]}次</div>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 每月统计 - 4×3格子 */}
+                    {(() => {
+                      const monthlyMap = {};
+                      filtered.forEach(e => {
+                        if (!e.date) return;
+                        const ym = e.date.slice(0,7);
+                        monthlyMap[ym] = (monthlyMap[ym]||0) + 1;
+                      });
+                      if (Object.keys(monthlyMap).length === 0) return null;
+                      if (statsYear === "all") return null;
+                      const maxM = Math.max(...Object.values(monthlyMap));
+
+                      // 特定年份：固定1-12月；全部：取所有出现的年份分组
+                      const displayMonths = statsYear !== "all"
+                        ? Array.from({length:12},(_,i)=>{
+                            const k = `${statsYear}-${String(i+1).padStart(2,"0")}`;
+                            return [k, monthlyMap[k]||0, i+1];
+                          })
+                        : Array.from({length:12},(_,i)=>{
+                            const k = `${statsYear !== "all" ? statsYear : new Date().getFullYear()}-${String(i+1).padStart(2,"0")}`;
+                            return [k, monthlyMap[k]||0, i+1];
+                          });
+
+                      // 全部模式下按年份分组显示
+                      if (statsYear === "all") {
+                        const years = [...new Set(Object.keys(monthlyMap).map(k=>k.slice(0,4)))].sort();
+                        return (
+                          <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",marginBottom:10,border:`2px solid ${C.border}`,boxShadow:`0 3px 0 0 ${C.border}`}}>
+                            <div style={{fontSize:11,color:C.teal,fontWeight:900,letterSpacing:1,marginBottom:10}}>📅 每月场次</div>
+                            {years.map(yr => {
+                              const yrMax = Math.max(...Array.from({length:12},(_,i)=>monthlyMap[`${yr}-${String(i+1).padStart(2,"0")}`]||0), 1);
+                              return (
+                                <div key={yr} style={{marginBottom:12}}>
+                                  <div style={{fontSize:11,color:C.muted,fontWeight:800,marginBottom:6}}>{yr}年</div>
+                                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+                                    {Array.from({length:12},(_,i)=>{
+                                      const k = `${yr}-${String(i+1).padStart(2,"0")}`;
+                                      const n = monthlyMap[k]||0;
+                                      const isTop = n === yrMax && n > 0;
+                                      const pct = n/yrMax;
+                                      const bg = n === 0 ? "#f5f0e8"
+                                        : isTop ? "linear-gradient(135deg,#ff6bab,#c97de8)"
+                                        : pct > 0.6 ? "#ffd6ea" : pct > 0.3 ? "#ffe8f2" : "#fff0f7";
+                                      return (
+                                        <div key={k} style={{borderRadius:10,padding:"8px 6px",background:bg,textAlign:"center",border:`1.5px solid ${n===0?"#f0ece4":isTop?"#ff6bab44":"#ffb8d844"}`}}>
+                                          <div style={{fontSize:11,fontWeight:700,color:n===0?C.muted:isTop?"#fff":C.text}}>{i+1}月</div>
+                                          <div style={{fontSize:18,fontWeight:900,color:n===0?C.muted:isTop?"#fff":C.accent,lineHeight:1.2}}>{n===0?"—":n}</div>
+                                          {n>0&&<div style={{fontSize:9,color:isTop?"rgba(255,255,255,0.8)":C.muted,marginTop:1}}>场</div>}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      }
+
+                      // 特定年份：单个4×3格子
+                      return (
+                        <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",marginBottom:10,border:`2px solid ${C.border}`,boxShadow:`0 3px 0 0 ${C.border}`}}>
+                          <div style={{fontSize:11,color:C.teal,fontWeight:900,letterSpacing:1,marginBottom:10}}>📅 每月场次</div>
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+                            {displayMonths.map(([ym, n, m]) => {
+                              const isTop = n === maxM && n > 0;
+                              const pct = maxM > 0 ? n/maxM : 0;
+                              const bg = n === 0 ? "#f5f0e8"
+                                : isTop ? "linear-gradient(135deg,#ff6bab,#c97de8)"
+                                : pct > 0.6 ? "#ffd6ea" : pct > 0.3 ? "#ffe8f2" : "#fff0f7";
+                              return (
+                                <div key={ym} style={{borderRadius:10,padding:"8px 6px",background:bg,textAlign:"center",border:`1.5px solid ${n===0?"#f0ece4":isTop?"#ff6bab44":"#ffb8d844"}`}}>
+                                  <div style={{fontSize:11,fontWeight:700,color:n===0?C.muted:isTop?"#fff":C.text}}>{m}月</div>
+                                  <div style={{fontSize:n===0?14:22,fontWeight:900,color:n===0?C.muted:isTop?"#fff":C.accent,lineHeight:1.2}}>{n===0?"—":n}</div>
+                                  {n>0&&<div style={{fontSize:9,color:isTop?"rgba(255,255,255,0.8)":C.muted,marginTop:1}}>场</div>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* 城市分布 */}
+                    {Object.entries(ci).length > 0 && (
+                      <CollapsibleBarCard
+                        title="📍 城市"
+                        entries={Object.entries(ci)}
+                        barColorFn={i=>i===0?"linear-gradient(90deg,#ff6bab,#f0a830)":"linear-gradient(90deg,#f0a83066,#f0c88066)"}
+                        textColor={C.coral}
+                      />
+                    )}
+
+                    {/* 场馆分布 */}
+                    {Object.entries(ve).length > 0 && (
+                      <CollapsibleBarCard
+                        title="🏟️ 场馆"
+                        entries={Object.entries(ve)}
+                        barColorFn={i=>i===0?"linear-gradient(90deg,#5ecec8,#b8eeeb)":"linear-gradient(90deg,#5ecec833,#b8eeeb44)"}
+                        textColor={C.teal}
+                      />
+                    )}
+
+                    {/* 团体分布 */}
+                    {Object.entries(gr).length > 0 && (
+                      <CollapsibleBarCard
+                        title="🎤 团体"
+                        entries={Object.entries(gr)}
+                        barColorFn={i=>i===0?"linear-gradient(90deg,#c97de8,#ff6bab)":"linear-gradient(90deg,#c97de833,#ff6bab22)"}
+                        textColor="#c97de8"
+                      />
+                    )}
+
+                    {/* 页脚水印 */}
+                    <div style={{textAlign:"center",paddingTop:isExporting?14:8,paddingBottom:isExporting?10:4,
+                      borderTop:isExporting?`1.5px solid ${C.border}`:"none",marginTop:isExporting?8:0}}>
+                      <span style={{fontSize:isExporting?12:11,color:"#b0c4c2",fontWeight:700,letterSpacing:2}}>
+                        ✦ LiveLog · 地下偶像演出日程管理 ✦
+                      </span>
+                    </div>
+                  </>)}
+                </div>
+              </div>);
+      })()}
+
+            {/* ── 纪念日汇总 视图 ── */}
       {page === "annivs" && (() => {
         const todayD = new Date(today);
 
@@ -1732,268 +1987,7 @@ function App() {
             </>)}
 
             {/* ── STATS ── */}
-            {modal==="stats" && (() => {
-              const allYears = [...new Set(events.map(e => e.date?.slice(0,4)).filter(Boolean))].sort((a,b)=>b-a);
-              const filtered = statsYear === "all" ? events : events.filter(e => e.date?.startsWith(statsYear));
-              const ci = {}, ve = {}, gr = {};
-              filtered.forEach(e => {
-                if(e.city) ci[e.city]=(ci[e.city]||0)+1;
-                if(e.venue) ve[e.venue]=(ve[e.venue]||0)+1;
-                if(e.group) e.group.split(",").map(s=>s.trim()).filter(Boolean).forEach(g=>{ gr[g]=(gr[g]||0)+1; });
-              });
-              const s = { total: filtered.length, ci, ve, gr };
-              const topCity  = Object.entries(ci).sort((a,b)=>b[1]-a[1])[0];
-              const topVenue = Object.entries(ve).sort((a,b)=>b[1]-a[1])[0];
-              const topGroup = Object.entries(gr).sort((a,b)=>b[1]-a[1])[0];
-              const titleStr = statsYear === "all" ? "全部时间" : `${statsYear}年`;
-
-              // 导出为图片
-              const doExport = (canvas) => {
-                const dataUrl = canvas.toDataURL("image/png");
-                const a = document.createElement("a");
-                a.download = `LiveLog-演出统计-${titleStr}.png`;
-                a.href = dataUrl;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setIsExporting(false);
-              };
-              const exportImg = () => {
-                const node = document.getElementById("stats-export-card");
-                if (!node) return;
-                // 先显示标题区，等 DOM 更新后再截图
-                setIsExporting(true);
-                const shoot = () => {
-                  if (window.html2canvas) {
-                    window.html2canvas(node, { backgroundColor:"#faf7f2", scale:2, useCORS:true, logging:false }).then(doExport);
-                  } else {
-                    const s2 = document.createElement("script");
-                    s2.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-                    s2.onload = () => window.html2canvas(node, { backgroundColor:"#faf7f2", scale:2, useCORS:true, logging:false }).then(doExport);
-                    document.head.appendChild(s2);
-                  }
-                };
-                setTimeout(shoot, 80); // 等待 React re-render
-              };
-
-              // 进度条行组件（inline）
-              const BarRow = ({name, count, max, rank, barColor, textColor}) => (
-                <div style={{marginBottom:10}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                    <div style={{width:20,height:20,borderRadius:6,background:rank===0?"linear-gradient(135deg,#f0a830,#e8886a)":"#f0ece4",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                      <span style={{fontSize:10,fontWeight:900,color:rank===0?"#fff":C.muted}}>{rank+1}</span>
-                    </div>
-                    <span style={{flex:1,fontSize:13,fontWeight:rank===0?800:600,color:rank===0?C.text:C.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}</span>
-                    <span style={{fontSize:13,fontWeight:800,color:textColor,flexShrink:0}}>{count}次</span>
-                  </div>
-                  <div style={{height:8,background:"#f0ece4",borderRadius:4,overflow:"hidden",marginLeft:28}}>
-                    <div style={{height:"100%",width:`${count/max*100}%`,background:barColor,borderRadius:4}}/>
-                  </div>
-                </div>
-              );
-
-              return (<>
-                {/* Header：标题 + 分享按钮 */}
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
-                  <div>
-                    <div style={{fontSize:11,color:C.muted,fontWeight:700,letterSpacing:1}}>演出统计</div>
-                    <div style={{fontSize:20,fontWeight:900,color:C.text}}>{titleStr}</div>
-                  </div>
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    {/* 分享/导出按钮 */}
-                    <button onClick={exportImg} title="导出图片"
-                      style={{width:36,height:36,borderRadius:10,background:"#f0ece4",border:`2px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
-                        <polyline points="16 6 12 2 8 6"/>
-                        <line x1="12" y1="2" x2="12" y2="15"/>
-                      </svg>
-                    </button>
-                    {/* 关闭按钮 */}
-                    <button onClick={closeModal} style={{width:36,height:36,borderRadius:10,background:"#fff8ee",border:"2px solid #f0a830",color:"#f0a830",fontSize:16,cursor:"pointer",fontWeight:900}}>✕</button>
-                  </div>
-                </div>
-
-                {/* 年份切换 */}
-                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
-                  {["all",...allYears].map(y => (
-                    <button key={y} onClick={()=>setStatsYear(y)}
-                      style={{padding:"5px 12px",borderRadius:20,border:`2px solid ${statsYear===y?(y==="all"?C.teal:C.accent):C.border}`,background:statsYear===y?(y==="all"?"#edfcfb":"#fff0f8"):"#fff",color:statsYear===y?(y==="all"?C.teal:C.accent):C.muted,fontSize:12,fontWeight:800,cursor:"pointer"}}>
-                      {y==="all"?"全部":y+"年"}
-                    </button>
-                  ))}
-                </div>
-
-                {/* 导出卡片区域 */}
-                <div id="stats-export-card" style={{background:"#faf7f2",borderRadius:20,padding:"20px 16px 16px",border:`3px solid ${C.border}`,boxShadow:"0 6px 0 0 #e8e0d0"}}>
-
-                  {/* 导出图片顶部标题 —— 仅导出时显示 */}
-                  {isExporting && (
-                    <div style={{paddingBottom:14,marginBottom:16,borderBottom:`2px solid ${C.border}`}}>
-                      <div style={{fontSize:10,color:C.muted,fontWeight:800,letterSpacing:3,marginBottom:8}}>MY LIVE LOG</div>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
-                        <div style={{fontSize:32,fontWeight:900,fontFamily:"'Nunito','PingFang SC',sans-serif",lineHeight:1}}>
-                          <span style={{color:"#ff6bab"}}>我的</span><span style={{color:C.teal}}>LiveLog</span>
-                        </div>
-                        <div style={{fontSize:13,fontWeight:800,color:C.muted,paddingBottom:3}}>{titleStr}</div>
-                      </div>
-                    </div>
-                  )}
-
-                  {s.total === 0
-                    ? <div style={{textAlign:"center",color:C.muted,padding:"40px 0"}}>暂无演出记录 ✨</div>
-                    : (<>
-
-                    {/* Hero：三个大数字 */}
-                    <div style={{background:"linear-gradient(135deg,#ff6bab 0%,#c97de8 100%)",borderRadius:16,padding:"20px 20px 18px",marginBottom:14,boxShadow:"0 4px 0 0 #c0306044"}}>
-                      <div style={{fontSize:11,color:"rgba(255,255,255,0.75)",fontWeight:800,letterSpacing:2,marginBottom:4}}>LIVE LOG · {titleStr}</div>
-                      <div style={{fontSize:48,fontWeight:900,color:"#fff",lineHeight:1}}>{s.total}<span style={{fontSize:18,marginLeft:6,opacity:.9}}>场演出</span></div>
-                      <div style={{height:1,background:"rgba(255,255,255,0.2)",margin:"14px 0"}}/>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
-                        <div>
-                          <div style={{fontSize:9,color:"rgba(255,255,255,0.7)",fontWeight:700,letterSpacing:1,marginBottom:2}}>最常去城市</div>
-                          <div style={{fontSize:15,fontWeight:900,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{topCity?topCity[0]:"—"}</div>
-                          {topCity&&<div style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginTop:1}}>{topCity[1]}次</div>}
-                        </div>
-                        <div>
-                          <div style={{fontSize:9,color:"rgba(255,255,255,0.7)",fontWeight:700,letterSpacing:1,marginBottom:2}}>最常去场馆</div>
-                          <div style={{fontSize:13,fontWeight:900,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{topVenue?topVenue[0]:"—"}</div>
-                          {topVenue&&<div style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginTop:1}}>{topVenue[1]}次</div>}
-                        </div>
-                        <div>
-                          <div style={{fontSize:9,color:"rgba(255,255,255,0.7)",fontWeight:700,letterSpacing:1,marginBottom:2}}>最常看团体</div>
-                          <div style={{fontSize:13,fontWeight:900,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{topGroup?topGroup[0]:"—"}</div>
-                          {topGroup&&<div style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginTop:1}}>{topGroup[1]}次</div>}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 每月统计 - 4×3格子 */}
-                    {(() => {
-                      const monthlyMap = {};
-                      filtered.forEach(e => {
-                        if (!e.date) return;
-                        const ym = e.date.slice(0,7);
-                        monthlyMap[ym] = (monthlyMap[ym]||0) + 1;
-                      });
-                      if (Object.keys(monthlyMap).length === 0) return null;
-                      if (statsYear === "all") return null;
-                      const maxM = Math.max(...Object.values(monthlyMap));
-
-                      // 特定年份：固定1-12月；全部：取所有出现的年份分组
-                      const displayMonths = statsYear !== "all"
-                        ? Array.from({length:12},(_,i)=>{
-                            const k = `${statsYear}-${String(i+1).padStart(2,"0")}`;
-                            return [k, monthlyMap[k]||0, i+1];
-                          })
-                        : Array.from({length:12},(_,i)=>{
-                            const k = `${statsYear !== "all" ? statsYear : new Date().getFullYear()}-${String(i+1).padStart(2,"0")}`;
-                            return [k, monthlyMap[k]||0, i+1];
-                          });
-
-                      // 全部模式下按年份分组显示
-                      if (statsYear === "all") {
-                        const years = [...new Set(Object.keys(monthlyMap).map(k=>k.slice(0,4)))].sort();
-                        return (
-                          <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",marginBottom:10,border:`2px solid ${C.border}`,boxShadow:`0 3px 0 0 ${C.border}`}}>
-                            <div style={{fontSize:11,color:C.teal,fontWeight:900,letterSpacing:1,marginBottom:10}}>📅 每月场次</div>
-                            {years.map(yr => {
-                              const yrMax = Math.max(...Array.from({length:12},(_,i)=>monthlyMap[`${yr}-${String(i+1).padStart(2,"0")}`]||0), 1);
-                              return (
-                                <div key={yr} style={{marginBottom:12}}>
-                                  <div style={{fontSize:11,color:C.muted,fontWeight:800,marginBottom:6}}>{yr}年</div>
-                                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
-                                    {Array.from({length:12},(_,i)=>{
-                                      const k = `${yr}-${String(i+1).padStart(2,"0")}`;
-                                      const n = monthlyMap[k]||0;
-                                      const isTop = n === yrMax && n > 0;
-                                      const pct = n/yrMax;
-                                      const bg = n === 0 ? "#f5f0e8"
-                                        : isTop ? "linear-gradient(135deg,#ff6bab,#c97de8)"
-                                        : pct > 0.6 ? "#ffd6ea" : pct > 0.3 ? "#ffe8f2" : "#fff0f7";
-                                      return (
-                                        <div key={k} style={{borderRadius:10,padding:"8px 6px",background:bg,textAlign:"center",border:`1.5px solid ${n===0?"#f0ece4":isTop?"#ff6bab44":"#ffb8d844"}`}}>
-                                          <div style={{fontSize:11,fontWeight:700,color:n===0?C.muted:isTop?"#fff":C.text}}>{i+1}月</div>
-                                          <div style={{fontSize:18,fontWeight:900,color:n===0?C.muted:isTop?"#fff":C.accent,lineHeight:1.2}}>{n===0?"—":n}</div>
-                                          {n>0&&<div style={{fontSize:9,color:isTop?"rgba(255,255,255,0.8)":C.muted,marginTop:1}}>场</div>}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      }
-
-                      // 特定年份：单个4×3格子
-                      return (
-                        <div style={{background:"#fff",borderRadius:14,padding:"14px 16px",marginBottom:10,border:`2px solid ${C.border}`,boxShadow:`0 3px 0 0 ${C.border}`}}>
-                          <div style={{fontSize:11,color:C.teal,fontWeight:900,letterSpacing:1,marginBottom:10}}>📅 每月场次</div>
-                          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
-                            {displayMonths.map(([ym, n, m]) => {
-                              const isTop = n === maxM && n > 0;
-                              const pct = maxM > 0 ? n/maxM : 0;
-                              const bg = n === 0 ? "#f5f0e8"
-                                : isTop ? "linear-gradient(135deg,#ff6bab,#c97de8)"
-                                : pct > 0.6 ? "#ffd6ea" : pct > 0.3 ? "#ffe8f2" : "#fff0f7";
-                              return (
-                                <div key={ym} style={{borderRadius:10,padding:"8px 6px",background:bg,textAlign:"center",border:`1.5px solid ${n===0?"#f0ece4":isTop?"#ff6bab44":"#ffb8d844"}`}}>
-                                  <div style={{fontSize:11,fontWeight:700,color:n===0?C.muted:isTop?"#fff":C.text}}>{m}月</div>
-                                  <div style={{fontSize:n===0?14:22,fontWeight:900,color:n===0?C.muted:isTop?"#fff":C.accent,lineHeight:1.2}}>{n===0?"—":n}</div>
-                                  {n>0&&<div style={{fontSize:9,color:isTop?"rgba(255,255,255,0.8)":C.muted,marginTop:1}}>场</div>}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* 城市分布 */}
-                    {Object.entries(ci).length > 0 && (
-                      <CollapsibleBarCard
-                        title="📍 城市"
-                        entries={Object.entries(ci)}
-                        barColorFn={i=>i===0?"linear-gradient(90deg,#ff6bab,#f0a830)":"linear-gradient(90deg,#f0a83066,#f0c88066)"}
-                        textColor={C.coral}
-                      />
-                    )}
-
-                    {/* 场馆分布 */}
-                    {Object.entries(ve).length > 0 && (
-                      <CollapsibleBarCard
-                        title="🏟️ 场馆"
-                        entries={Object.entries(ve)}
-                        barColorFn={i=>i===0?"linear-gradient(90deg,#5ecec8,#b8eeeb)":"linear-gradient(90deg,#5ecec833,#b8eeeb44)"}
-                        textColor={C.teal}
-                      />
-                    )}
-
-                    {/* 团体分布 */}
-                    {Object.entries(gr).length > 0 && (
-                      <CollapsibleBarCard
-                        title="🎤 团体"
-                        entries={Object.entries(gr)}
-                        barColorFn={i=>i===0?"linear-gradient(90deg,#c97de8,#ff6bab)":"linear-gradient(90deg,#c97de833,#ff6bab22)"}
-                        textColor="#c97de8"
-                      />
-                    )}
-
-                    {/* 页脚水印 */}
-                    <div style={{textAlign:"center",paddingTop:isExporting?14:8,paddingBottom:isExporting?10:4,
-                      borderTop:isExporting?`1.5px solid ${C.border}`:"none",marginTop:isExporting?8:0}}>
-                      <span style={{fontSize:isExporting?12:11,color:"#b0c4c2",fontWeight:700,letterSpacing:2}}>
-                        ✦ LiveLog · 地下偶像演出日程管理 ✦
-                      </span>
-                    </div>
-                  </>)}
-                </div>
-              </>);
-            })()}
-
-            {/* ── 重复确认 ── */}
+{/* ── 重复确认 ── */}
             {modal==="clear-confirm" && (<>
               <MHead title="⚠️ 清除所有数据" onClose={closeModal} />
               <div style={{background:"#fff5f5",border:"1.5px solid #ffb8b8",borderRadius:12,padding:"14px 16px",marginBottom:16,fontSize:13,color:"#c03040",lineHeight:1.7}}>
