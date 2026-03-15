@@ -456,6 +456,10 @@ function App() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
   const [editGroupVal, setEditGroupVal] = useState("");
+  const [listFilterYear, setListFilterYear]   = useState("all");
+  const [listFilterMonth, setListFilterMonth] = useState("all");
+  const [listFilterGroups, setListFilterGroups] = useState([]); // 多选团体
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
 
   useEffect(() => localStorage.setItem("ic_events", JSON.stringify(events)), [events]);
   useEffect(() => localStorage.setItem("ic_birthdays", JSON.stringify(birthdays)), [birthdays]);
@@ -1133,67 +1137,181 @@ function App() {
 
       {/* ── 列表 视图 ── */}
       {page === "list" && (() => {
-        const allEvs = [...events].sort((a,b)=>(b.date||"").localeCompare(a.date||"") || (b.time||"").localeCompare(a.time||""));
-        if (allEvs.length === 0) return (
-          <div style={{width:"100%",maxWidth:480,padding:"60px 20px",textAlign:"center",color:C.muted}}>
-            <div style={{fontSize:36,marginBottom:12}}>🎤</div>
-            <div>还没有演出记录</div>
-            <div style={{fontSize:12,marginTop:6}}>点击上方「＋演出」添加第一场</div>
-          </div>
-        );
-        let lastMonth = "";
-        const monthCount = {};
-        allEvs.forEach(ev => {
-          const ym = ev.date ? ev.date.slice(0,7) : "未知";
-          monthCount[ym] = (monthCount[ym]||0) + 1;
+        const sortedEvs = [...events].sort((a,b)=>(b.date||"").localeCompare(a.date||"") || (b.time||"").localeCompare(a.time||""));
+        const allYears  = [...new Set(sortedEvs.map(e=>e.date?.slice(0,4)).filter(Boolean))].sort((a,b)=>b-a);
+        const allGroups = [...new Set(sortedEvs.flatMap(e=>(e.group||"").split(",").map(s=>s.trim()).filter(Boolean)))].sort();
+        const monthsWithData = listFilterYear === "all" ? [] :
+          [...new Set(sortedEvs.filter(e=>e.date?.startsWith(listFilterYear)).map(e=>parseInt(e.date?.slice(5,7))).filter(Boolean))].sort((a,b)=>a-b);
+
+        const filtered = sortedEvs.filter(ev => {
+          if (listFilterYear !== "all" && !ev.date?.startsWith(listFilterYear)) return false;
+          if (listFilterMonth !== "all" && ev.date?.slice(5,7) !== listFilterMonth.padStart(2,"0")) return false;
+          if (listFilterGroups.length > 0) {
+            const evGroups = (ev.group||"").split(",").map(s=>s.trim()).filter(Boolean);
+            if (!listFilterGroups.some(g => evGroups.includes(g))) return false;
+          }
+          return true;
         });
+        const toggleGroup = (g) => setListFilterGroups(p => p.includes(g) ? p.filter(x=>x!==g) : [...p,g]);
+        const hasFilter = listFilterYear!=="all" || listFilterMonth!=="all" || listFilterGroups.length>0;
+        // 筛选面板 chip 样式
+        const chip = (active, color) => ({
+          padding:"7px 14px", borderRadius:20, fontSize:13, fontWeight:800, cursor:"pointer",
+          border:`2px solid ${active?color:C.border}`,
+          background: active ? color+"18" : "#fff",
+          color: active ? color : C.muted,
+          display:"inline-block",
+        });
+
         return (
-          <div style={{width:"100%",maxWidth:480,padding:"8px 20px 20px"}}>
-            {allEvs.map(ev => {
-              const ym = ev.date ? ev.date.slice(0,7) : "未知";
-              const showMonth = ym !== lastMonth;
-              lastMonth = ym;
-              const isPast = ev.date && ev.date < today;
+          <div style={{width:"100%",maxWidth:480}}>
+
+            {/* ── 列表顶部：结果数 + 筛选按钮 ── */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 20px 4px"}}>
+              <div style={{fontSize:12,color:C.muted,fontWeight:700}}>
+                {hasFilter
+                  ? <><span style={{color:C.accent,fontWeight:900}}>{filtered.length}</span> 场演出（已筛选）</>
+                  : <><span style={{fontWeight:900,color:C.text}}>{events.length}</span> 场演出</>
+                }
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                {hasFilter && (
+                  <button onClick={()=>{setListFilterYear("all");setListFilterMonth("all");setListFilterGroups([]);}}
+                    style={{background:"none",border:"none",color:C.teal,fontSize:11,fontWeight:800,cursor:"pointer",padding:0}}>
+                    清除筛选
+                  </button>
+                )}
+                <button onClick={()=>setShowFilterPanel(true)}
+                  style={{display:"flex",alignItems:"center",gap:5,background:hasFilter?"#fff0f8":"#fff",
+                    border:`2px solid ${hasFilter?C.accent:C.border}`,borderRadius:20,
+                    padding:"5px 12px",fontSize:12,fontWeight:800,cursor:"pointer",
+                    color:hasFilter?C.accent:C.muted}}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/>
+                  </svg>
+                  筛选{hasFilter?` (${(listFilterYear!=="all"?1:0)+(listFilterMonth!=="all"?1:0)+listFilterGroups.length})`:""}
+                </button>
+              </div>
+            </div>
+
+            {/* ── 演出列表 ── */}
+            {filtered.length === 0 ? (
+              <div style={{padding:"60px 20px",textAlign:"center",color:C.muted}}>
+                <div style={{fontSize:36,marginBottom:12}}>🎤</div>
+                <div>{events.length===0?"还没有演出记录":"没有符合筛选条件的演出"}</div>
+                {events.length===0&&<div style={{fontSize:12,marginTop:6}}>点击上方「＋演出」添加第一场</div>}
+              </div>
+            ) : (() => {
+              let lastMonth = "";
+              const monthCount = {};
+              filtered.forEach(ev => { const ym=ev.date?ev.date.slice(0,7):"未知"; monthCount[ym]=(monthCount[ym]||0)+1; });
               return (
-                <React.Fragment key={ev.id}>
-                  {showMonth && (
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"16px 0 6px"}}>
-                      <div style={{fontSize:12,fontWeight:700,color:isPast?C.teal:C.accent,letterSpacing:2}}>
-                        {ym === "未知" ? "未知日期" : ym.replace("-","年")+"月"}
-                      </div>
-                      <div style={{fontSize:11,fontWeight:700,color:C.muted}}>共 {monthCount[ym]} 场演出</div>
-                    </div>
-                  )}
-                  <div onClick={()=>{ setEditItem({...ev,_t:"event"}); setEditType("event"); setForm({title:ev.title,date:ev.date,time:ev.time,endTime:ev.endTime,venue:ev.venue,city:ev.city,group:ev.group}); setModal("edit"); }}
-                    style={{background:C.card,border:`1px solid ${isPast?C.border:C.accent+"55"}`,borderRadius:12,padding:"12px 14px",marginBottom:8,cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start"}}>
-                    <div style={{minWidth:44,textAlign:"center",background:isPast?"#e0faf8":"#fce0ea",borderRadius:8,padding:"4px 6px"}}>
-                      <div style={{fontSize:18,fontWeight:900,color:isPast?C.teal:C.accent,lineHeight:1}}>
-                        {ev.date ? ev.date.slice(8) : "--"}
-                      </div>
-                      <div style={{fontSize:10,color:C.muted}}>
-                        {ev.date ? ["日","一","二","三","四","五","六"][new Date(ev.date).getDay()] : ""}
-                      </div>
-                    </div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                        {ev.title || "（无标题）"}
-                      </div>
-                      <div style={{fontSize:12,color:C.muted,display:"flex",gap:8,flexWrap:"wrap"}}>
-                        {ev.time && <span>🕐 {ev.time}{ev.endTime?"～"+ev.endTime:""}</span>}
-                        {ev.venue && <span>📍 {ev.venue}</span>}
-                      </div>
-                      {ev.group && (
-                        <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
-                          {ev.group.split(",").map(s=>s.trim()).filter(Boolean).map(g=>(
-                            <span key={g} style={{background:"#f8eeff",border:"1px solid #c97de844",borderRadius:20,padding:"2px 8px",fontSize:11,color:"#c97de8",fontWeight:700}}>{g}</span>
-                          ))}
+                <div style={{padding:"4px 20px 20px"}}>
+                  {filtered.map(ev => {
+                    const ym = ev.date ? ev.date.slice(0,7) : "未知";
+                    const showMonth = ym !== lastMonth; lastMonth = ym;
+                    const isPast = ev.date && ev.date < today;
+                    return (
+                      <React.Fragment key={ev.id}>
+                        {showMonth && (
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"14px 0 6px"}}>
+                            <div style={{fontSize:12,fontWeight:700,color:isPast?C.teal:C.accent,letterSpacing:2}}>
+                              {ym==="未知"?"未知日期":ym.replace("-","年")+"月"}
+                            </div>
+                            <div style={{fontSize:11,fontWeight:700,color:C.muted}}>共 {monthCount[ym]} 场</div>
+                          </div>
+                        )}
+                        <div onClick={()=>{ setEditItem({...ev,_t:"event"}); setEditType("event"); setForm({title:ev.title,date:ev.date,time:ev.time,endTime:ev.endTime,venue:ev.venue,city:ev.city,group:ev.group}); setModal("edit"); }}
+                          style={{background:C.card,border:`1px solid ${isPast?C.border:C.accent+"55"}`,borderRadius:12,padding:"12px 14px",marginBottom:8,cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start"}}>
+                          <div style={{minWidth:44,textAlign:"center",background:isPast?"#e0faf8":"#fce0ea",borderRadius:8,padding:"4px 6px"}}>
+                            <div style={{fontSize:18,fontWeight:900,color:isPast?C.teal:C.accent,lineHeight:1}}>{ev.date?ev.date.slice(8):"--"}</div>
+                            <div style={{fontSize:10,color:C.muted}}>{ev.date?["日","一","二","三","四","五","六"][new Date(ev.date).getDay()]:""}</div>
+                          </div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ev.title||"（无标题）"}</div>
+                            <div style={{fontSize:12,color:C.muted,display:"flex",gap:8,flexWrap:"wrap"}}>
+                              {ev.time&&<span>🕐 {ev.time}{ev.endTime?"～"+ev.endTime:""}</span>}
+                              {ev.venue&&<span>📍 {ev.venue}</span>}
+                            </div>
+                            {ev.group&&(
+                              <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
+                                {ev.group.split(",").map(s=>s.trim()).filter(Boolean).map(g=>(
+                                  <span key={g} style={{background:"#f8eeff",border:"1px solid #c97de844",borderRadius:20,padding:"2px 8px",fontSize:11,color:"#c97de8",fontWeight:700}}>{g}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      )}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* ── 筛选面板（底部弹窗）── */}
+            {showFilterPanel && (
+              <div style={{position:"fixed",inset:0,background:"#1a3a3888",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+                onClick={()=>setShowFilterPanel(false)}>
+                <div style={{background:"#faf7f2",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,padding:"24px 20px 48px",maxHeight:"80vh",overflowY:"auto",border:`2px solid ${C.border}`,borderBottom:"none",boxShadow:"0 -4px 0 0 #b8eeeb"}}
+                  onClick={e=>e.stopPropagation()}>
+
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+                    <div style={{fontSize:16,fontWeight:900,color:C.text}}>筛选演出</div>
+                    <button onClick={()=>setShowFilterPanel(false)}
+                      style={{background:"#fff8ee",border:"2px solid #f0a830",color:"#f0a830",width:32,height:32,borderRadius:8,fontSize:15,fontWeight:900,cursor:"pointer",lineHeight:1}}>✕</button>
+                  </div>
+
+                  {/* 年份 */}
+                  <div style={{marginBottom:18}}>
+                    <div style={{fontSize:11,color:C.teal,fontWeight:900,letterSpacing:.5,marginBottom:10}}>时间 · 年份</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                      <div onClick={()=>{setListFilterYear("all");setListFilterMonth("all");}} style={chip(listFilterYear==="all",C.teal)}>全部</div>
+                      {allYears.map(y=>(
+                        <div key={y} onClick={()=>{setListFilterYear(y);setListFilterMonth("all");}} style={chip(listFilterYear===y,C.accent)}>{y}年</div>
+                      ))}
                     </div>
                   </div>
-                </React.Fragment>
-              );
-            })}
+
+                  {/* 月份（只在选了具体年份时显示）*/}
+                  {listFilterYear !== "all" && monthsWithData.length > 1 && (
+                    <div style={{marginBottom:18}}>
+                      <div style={{fontSize:11,color:C.teal,fontWeight:900,letterSpacing:.5,marginBottom:10}}>时间 · 月份</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                        <div onClick={()=>setListFilterMonth("all")} style={chip(listFilterMonth==="all","#f0a830")}>全月</div>
+                        {monthsWithData.map(m=>(
+                          <div key={m} onClick={()=>setListFilterMonth(String(m))} style={chip(listFilterMonth===String(m),"#f0a830")}>{m}月</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 团体 */}
+                  {allGroups.length > 0 && (
+                    <div style={{marginBottom:24}}>
+                      <div style={{fontSize:11,color:C.teal,fontWeight:900,letterSpacing:.5,marginBottom:10}}>演出团体（可多选）</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                        {allGroups.map(g=>(
+                          <div key={g} onClick={()=>toggleGroup(g)} style={chip(listFilterGroups.includes(g),"#c97de8")}>{g}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 确认/清除按钮 */}
+                  <button onClick={()=>setShowFilterPanel(false)}
+                    style={{width:"100%",padding:"13px",borderRadius:12,border:"none",background:"linear-gradient(135deg,#ff6bab,#e03888)",color:"#fff",fontSize:15,fontWeight:900,cursor:"pointer",marginBottom:10,boxShadow:"0 4px 0 0 #c0306055"}}>
+                    确认（{filtered.length} 场演出）
+                  </button>
+                  {hasFilter && (
+                    <button onClick={()=>{setListFilterYear("all");setListFilterMonth("all");setListFilterGroups([]);}}
+                      style={{width:"100%",padding:"11px",borderRadius:12,border:`2px solid ${C.border}`,background:"#fff",color:C.muted,fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                      清除所有筛选
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
