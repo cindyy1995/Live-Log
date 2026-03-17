@@ -1,0 +1,17 @@
+{
+  "name": "live-log",
+  "version": "1.0.0",
+  "description": "LiveLog · 地下偶像演出日历",
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Static site - no build required'",
+    "lint": "echo 'No linter configured'"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@vercel/analytics": "^2.0.1"
+  }
+}
