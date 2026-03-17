@@ -15,6 +15,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -364,6 +365,11 @@ function regexParseBirthday(rawText) {
   return { name, birthday, group };
 }
 
+// ===== Supabase 初始化 =====
+const SUPA_URL = "https://vvorzruwawtiehmptyzf.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2b3J6cnV3YXd0aWVobXB0eXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3NTUxNDMsImV4cCI6MjA4OTMzMTE0M30.f00BjpzdszozyBewBRHs6Tad0l0ugS6WUQNKE6bA2qg";
+const supa = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+
 // ===== API 调用（部署到 Vercel 后生效，本地双击打开时跳过）=====
 const IS_DEPLOYED = location.protocol === "https:" && !location.hostname.includes("localhost");
 
@@ -458,9 +464,97 @@ function App() {
   const [editGroupVal, setEditGroupVal] = useState("");
   const [listFilterYear, setListFilterYear]   = useState("all");
   const [listFilterMonth, setListFilterMonth] = useState("all");
-  const [listFilterGroups, setListFilterGroups] = useState([]); // 多选团体
+  const [listFilterGroups, setListFilterGroups] = useState([]);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [statsPrevPage, setStatsPrevPage]   = useState("list");
+
+  // ── Supabase Auth 状态 ──
+  const [authUser, setAuthUser]           = useState(null);
+  const [authLoading, setAuthLoading]     = useState(true);
+  const [authModal, setAuthModal]         = useState(null); // "login"|"signup"
+  const [authEmail, setAuthEmail]         = useState("");
+  const [authPassword, setAuthPassword]   = useState("");
+  const [authError, setAuthError]         = useState("");
+  const [authBusy, setAuthBusy]           = useState(false);
+  const [authMsg, setAuthMsg]             = useState("");
+  const [cloudSyncing, setCloudSyncing]   = useState(false);
+  const [cloudMsg, setCloudMsg]           = useState("");
+
+  useEffect(() => {
+    supa.auth.getSession().then(({ data: { session } }) => {
+      setAuthUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supa.auth.onAuthStateChange((_e, session) => {
+      setAuthUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ── 云端上传数据（把本地数据推到 Supabase user_data 表）──
+  const cloudUpload = async () => {
+    if (!authUser) return;
+    setCloudSyncing(true); setCloudMsg("");
+    try {
+      const images = {};
+      [...anniversaries, ...birthdays].forEach(item => {
+        const val = localStorage.getItem(`ic_anniv_img_${item.id}`);
+        if (val) images[String(item.id)] = val;
+      });
+      const payload = { version: 2, exportedAt: new Date().toISOString(), events, birthdays, anniversaries, myGroups, images };
+      const { error } = await supa.from("user_data").upsert({ user_id: authUser.id, data: payload }, { onConflict: "user_id" });
+      if (error) throw error;
+      setCloudMsg("✅ 已同步到云端");
+    } catch (e) { setCloudMsg("❌ 同步失败：" + e.message); }
+    setCloudSyncing(false);
+    setTimeout(() => setCloudMsg(""), 3000);
+  };
+
+  // ── 云端下载数据（从 Supabase 拉取覆盖本地）──
+  const cloudDownload = async () => {
+    if (!authUser) return;
+    setCloudSyncing(true); setCloudMsg("");
+    try {
+      const { data, error } = await supa.from("user_data").select("data").eq("user_id", authUser.id).single();
+      if (error || !data) throw new Error("云端暂无数据");
+      const d = data.data;
+      const merge = (existing, incoming) => {
+        const ids = new Set(existing.map(x => x.id));
+        return [...existing, ...(incoming || []).filter(x => !ids.has(x.id))];
+      };
+      if (d.events)        setEvents(p       => merge(p, d.events));
+      if (d.birthdays)     setBirthdays(p    => merge(p, d.birthdays));
+      if (d.anniversaries) setAnnivs(p       => merge(p, d.anniversaries));
+      if (d.myGroups?.length) setMyGroups(p  => [...new Set([...p, ...d.myGroups])]);
+      if (d.images) Object.entries(d.images).forEach(([id, b64]) => {
+        try { localStorage.setItem(`ic_anniv_img_${id}`, b64); } catch(e) {}
+      });
+      setCloudMsg("✅ 已从云端恢复数据");
+    } catch (e) { setCloudMsg("❌ " + e.message); }
+    setCloudSyncing(false);
+    setTimeout(() => setCloudMsg(""), 3000);
+  };
+
+  const handleSignUp = async () => {
+    setAuthBusy(true); setAuthError(""); setAuthMsg("");
+    const { error } = await supa.auth.signUp({ email: authEmail, password: authPassword });
+    if (error) setAuthError(error.message);
+    else setAuthMsg("注册成功！请查收验证邮件后登录 📧");
+    setAuthBusy(false);
+  };
+
+  const handleLogin = async () => {
+    setAuthBusy(true); setAuthError(""); setAuthMsg("");
+    const { error } = await supa.auth.signInWithPassword({ email: authEmail, password: authPassword });
+    if (error) { setAuthError("邮箱或密码错误，请重试"); setAuthBusy(false); return; }
+    setAuthModal(null); setAuthEmail(""); setAuthPassword("");
+    setAuthBusy(false);
+  };
+
+  const handleLogout = async () => {
+    await supa.auth.signOut();
+    setCloudMsg("");
+  };
 
   useEffect(() => localStorage.setItem("ic_events", JSON.stringify(events)), [events]);
   useEffect(() => localStorage.setItem("ic_birthdays", JSON.stringify(birthdays)), [birthdays]);
@@ -807,6 +901,42 @@ function App() {
   // 设置页
   if (page === "settings") return (
     <div className="cream-bg" style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
+
+      {/* ── 登录/注册弹窗 ── */}
+      {authModal && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:360,boxShadow:"0 20px 60px #00000030"}}>
+            <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:22,fontWeight:900,color:"#1a3a38",marginBottom:4}}>
+              {authModal==="signup" ? "✨ 创建账号" : "👋 欢迎回来"}
+            </div>
+            <div style={{fontSize:12,color:"#5a9994",marginBottom:20,fontWeight:700}}>
+              {authModal==="signup" ? "注册后可将数据同步到云端，跨设备使用" : "登录以使用云端数据同步"}
+            </div>
+            <input value={authEmail} onChange={e=>setAuthEmail(e.target.value)}
+              placeholder="邮箱地址"
+              style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1.5px solid #e8e0d0",fontSize:14,marginBottom:10,boxSizing:"border-box",outline:"none",color:"#1a3a38"}} />
+            <input value={authPassword} onChange={e=>setAuthPassword(e.target.value)}
+              type="password" placeholder="密码（至少6位）"
+              onKeyDown={e=>e.key==="Enter"&&(authModal==="signup"?handleSignUp():handleLogin())}
+              style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1.5px solid #e8e0d0",fontSize:14,marginBottom:14,boxSizing:"border-box",outline:"none",color:"#1a3a38"}} />
+            {authError && <div style={{color:"#e03040",fontSize:12,marginBottom:10,fontWeight:700}}>❌ {authError}</div>}
+            {authMsg   && <div style={{color:"#1a9a60",fontSize:12,marginBottom:10,fontWeight:700}}>{authMsg}</div>}
+            <button disabled={authBusy||!authEmail||!authPassword}
+              onClick={authModal==="signup"?handleSignUp:handleLogin}
+              style={{width:"100%",padding:"12px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:15,fontWeight:900,cursor:"pointer",marginBottom:10,opacity:(authBusy||!authEmail||!authPassword)?0.6:1}}>
+              {authBusy ? "处理中…" : authModal==="signup" ? "注册" : "登录"}
+            </button>
+            <div style={{textAlign:"center",fontSize:13,color:"#5a9994"}}>
+              {authModal==="signup"
+                ? <span>已有账号？<button onClick={()=>{setAuthModal("login");setAuthError("");setAuthMsg("");}} style={{background:"none",border:"none",color:"#ff6bab",fontWeight:900,cursor:"pointer"}}>登录</button></span>
+                : <span>没有账号？<button onClick={()=>{setAuthModal("signup");setAuthError("");setAuthMsg("");}} style={{background:"none",border:"none",color:"#ff6bab",fontWeight:900,cursor:"pointer"}}>注册</button></span>
+              }
+              <button onClick={()=>{setAuthModal(null);setAuthError("");setAuthMsg("");}} style={{display:"block",margin:"10px auto 0",background:"none",border:"none",color:"#b0a090",fontSize:12,cursor:"pointer"}}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{width:"100%",maxWidth:480,padding:"52px 20px 16px",borderBottom:`2px solid ${C.border}`}}>
         <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:24,fontWeight:900,color:C.text}}>⚙️ 我的设置</div>
         <div style={{fontSize:12,color:C.muted,marginTop:4,fontWeight:700}}>团体管理 · 数据备份与恢复</div>
@@ -844,9 +974,63 @@ function App() {
           </div>
         </div>
 
-        {/* 备份恢复 + 清除 */}
+
+        {/* 账号登录 + 云端同步 */}
         <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`}}>
-          <div style={{fontSize:15,fontWeight:900,marginBottom:12,color:C.text}}>💾 备份与恢复</div>
+          <div style={{fontSize:15,fontWeight:900,marginBottom:4,color:C.text}}>☁️ 账号与云端同步</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:14,lineHeight:1.6}}>登录后可将数据备份到云端，换设备或清除缓存后也能恢复</div>
+
+          {authLoading ? (
+            <div style={{textAlign:"center",color:C.muted,padding:"12px 0",fontSize:13}}>加载中…</div>
+          ) : !authUser ? (
+            <>
+              <div style={{background:"#f8f5ff",border:"1.5px solid #c97de844",borderRadius:10,padding:"11px 14px",marginBottom:14,fontSize:12,color:"#6a4a8a",lineHeight:1.7}}>
+                <div style={{fontWeight:900,marginBottom:3}}>💡 为什么需要账号？</div>
+                <div>· 注册免费账号，一键把数据同步到云端</div>
+                <div>· 换手机、换浏览器后可以直接从云端恢复</div>
+                <div>· 不需要账号也可以继续使用本地备份功能</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>{setAuthModal("login");setAuthError("");setAuthMsg("");}}
+                  style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                  登录
+                </button>
+                <button onClick={()=>{setAuthModal("signup");setAuthError("");setAuthMsg("");}}
+                  style={{flex:1,padding:"11px",borderRadius:10,border:`2px solid ${C.accent}`,background:"#fff",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                  注册
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,background:"#f8fff8",border:"1.5px solid #5ecec844",borderRadius:10,padding:"11px 14px"}}>
+                <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,#ff6bab,#c97de8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"#fff",fontWeight:900,flexShrink:0}}>
+                  {authUser.email[0].toUpperCase()}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:900,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{authUser.email}</div>
+                  <div style={{fontSize:11,color:"#1a9a60",marginTop:1,fontWeight:700}}>✅ 已登录</div>
+                </div>
+                <button onClick={handleLogout} style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"#fff",color:C.muted,fontSize:12,cursor:"pointer",fontWeight:700,flexShrink:0}}>退出</button>
+              </div>
+              {cloudMsg && <div style={{fontSize:12,fontWeight:800,color:cloudMsg.startsWith("✅")?"#1a9a60":"#e03040",marginBottom:10,textAlign:"center"}}>{cloudMsg}</div>}
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={cloudUpload} disabled={cloudSyncing}
+                  style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:cloudSyncing?"#e0e0e0":"linear-gradient(135deg,#5ecec8,#1a8a84)",color:"#fff",fontSize:13,fontWeight:700,cursor:cloudSyncing?"default":"pointer"}}>
+                  {cloudSyncing ? "同步中…" : "☁️ 上传到云端"}
+                </button>
+                <button onClick={cloudDownload} disabled={cloudSyncing}
+                  style={{flex:1,padding:"11px",borderRadius:10,border:`2px solid ${C.teal}`,background:"#fff",color:C.teal,fontSize:13,fontWeight:700,cursor:cloudSyncing?"default":"pointer"}}>
+                  {cloudSyncing ? "同步中…" : "📥 从云端恢复"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* 本地备份恢复 + 清除 */}
+        <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`}}>
+          <div style={{fontSize:15,fontWeight:900,marginBottom:12,color:C.text}}>💾 本地备份与恢复</div>
 
           {/* 数据量统计 */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
@@ -856,14 +1040,6 @@ function App() {
                 <div style={{fontSize:11,color:C.muted,marginTop:2}}>{label}</div>
               </div>
             ))}
-          </div>
-
-          {/* 重要提示 */}
-          <div style={{background:"#fffbee",border:"1.5px solid #f0d060",borderRadius:10,padding:"11px 14px",marginBottom:14,fontSize:12,color:"#7a6010",lineHeight:1.75}}>
-            <div style={{fontWeight:900,marginBottom:4}}>⚠️ 关于数据存储</div>
-            <div>· 所有数据仅保存在<strong>当前浏览器</strong>中，换手机或清除浏览器缓存数据将丢失</div>
-            <div>· 不同浏览器之间数据<strong>不会自动同步</strong>，请固定使用同一个浏览器</div>
-            <div style={{marginTop:4,color:"#c07010",fontWeight:800}}>建议：定期导出备份文件，换设备后可完整恢复</div>
           </div>
 
           <button onClick={()=>exportData(false)} style={{width:"100%",padding:"11px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:10}}>
@@ -877,7 +1053,7 @@ function App() {
           {/* 分割线 */}
           <div style={{height:1,background:"#f0e8e0",margin:"4px 0 14px"}} />
 
-          {/* 清除数据 - 在同一个卡片内 */}
+          {/* 清除数据 */}
           <div style={{fontSize:13,fontWeight:900,color:"#c03040",marginBottom:6}}>🗑️ 清除本设备数据</div>
           <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.6}}>
             删除本浏览器中保存的全部记录，操作前建议先备份。
@@ -2501,8 +2677,8 @@ function ICard({ item, onEdit, onDelete, onClick }) {
   else if (item._t==="birthday") { title=`🎂 ${item.name} 生日`; sub=item.group||""; }
   else {
     title = item.title;
-    sub = item._years != null ? `第${item._years}周年 ✨`
-        : item._months != null ? `第${item._months}个月 ✨`
+    sub = item._years != null ? (item._years === 0 ? `🎉 纪念日当天` : `第${item._years}周年 ✨`)
+        : item._months != null ? (item._months === 0 ? `🎉 纪念日当天` : `第${item._months}个月 ✨`)
         : item._days != null ? `第${item._days}天 ✨`
         : item.startDate ? `💫 ${item.startDate} 起` : "纪念日";
   }
@@ -2611,6 +2787,5 @@ function BottomNav({ page, navigate, prevPage }) {
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
-<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>
