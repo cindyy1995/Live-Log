@@ -480,6 +480,15 @@ function App() {
   const [cloudSyncing, setCloudSyncing]   = useState(false);
   const [cloudMsg, setCloudMsg]           = useState("");
 
+  // ── 账号资料状态 ──
+  const [profileNickname, setProfileNickname] = useState("");
+  const [profileAvatar, setProfileAvatar]     = useState(""); // base64
+  const [profileSaving, setProfileSaving]     = useState(false);
+  const [profileMsg, setProfileMsg]           = useState("");
+  const [newPwd, setNewPwd]                   = useState("");
+  const [newPwdConfirm, setNewPwdConfirm]     = useState("");
+  const [pwdMsg, setPwdMsg]                   = useState("");
+
   useEffect(() => {
     supa.auth.getSession().then(({ data: { session } }) => {
       setAuthUser(session?.user ?? null);
@@ -554,6 +563,47 @@ function App() {
   const handleLogout = async () => {
     await supa.auth.signOut();
     setCloudMsg("");
+    setProfileNickname(""); setProfileAvatar(""); setProfileMsg(""); setPwdMsg("");
+  };
+
+  // 登录后加载资料
+  useEffect(() => {
+    if (!authUser) return;
+    supa.from("user_profiles").select("nickname,avatar_url").eq("user_id", authUser.id).single()
+      .then(({ data }) => {
+        if (data) { setProfileNickname(data.nickname || ""); setProfileAvatar(data.avatar_url || ""); }
+      });
+  }, [authUser]);
+
+  const saveProfile = async () => {
+    if (!authUser) return;
+    setProfileSaving(true); setProfileMsg("");
+    const { error } = await supa.from("user_profiles").upsert(
+      { user_id: authUser.id, nickname: profileNickname, avatar_url: profileAvatar },
+      { onConflict: "user_id" }
+    );
+    setProfileMsg(error ? "❌ 保存失败：" + error.message : "✅ 资料已保存");
+    setProfileSaving(false);
+    setTimeout(() => setProfileMsg(""), 3000);
+  };
+
+  const changePassword = async () => {
+    if (!newPwd || newPwd !== newPwdConfirm) { setPwdMsg("❌ 两次密码不一致"); return; }
+    if (newPwd.length < 6) { setPwdMsg("❌ 密码至少6位"); return; }
+    setPwdMsg("");
+    const { error } = await supa.auth.updateUser({ password: newPwd });
+    if (error) setPwdMsg("❌ 修改失败：" + error.message);
+    else { setPwdMsg("✅ 密码已修改"); setNewPwd(""); setNewPwdConfirm(""); }
+    setTimeout(() => setPwdMsg(""), 4000);
+  };
+
+  const handleAvatarUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) { setProfileMsg("❌ 图片不能超过500KB"); return; }
+    const reader = new FileReader();
+    reader.onload = ev => setProfileAvatar(ev.target.result);
+    reader.readAsDataURL(file);
   };
 
   useEffect(() => localStorage.setItem("ic_events", JSON.stringify(events)), [events]);
@@ -899,30 +949,31 @@ function App() {
   };
 
   // 设置页
-  if (page === "settings") return (
+  // ── 我的账号页面 ──
+  if (page === "account") return (
     <div className="cream-bg" style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
 
-      {/* ── 登录/注册弹窗 ── */}
+      {/* 登录/注册弹窗 */}
       {authModal && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:360,boxShadow:"0 20px 60px #00000030"}}>
             <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:22,fontWeight:900,color:"#1a3a38",marginBottom:4}}>
               {authModal==="signup" ? "✨ 创建账号" : "👋 欢迎回来"}
             </div>
-            <div style={{fontSize:12,color:"#5a9994",marginBottom:20,fontWeight:700}}>
+            <div style={{fontSize:12,color:"#5a9994",marginBottom:6,fontWeight:700}}>
               {authModal==="signup" ? "注册后可将数据同步到云端，跨设备使用" : "登录以使用云端数据同步"}
             </div>
-            <input value={authEmail} onChange={e=>setAuthEmail(e.target.value)}
-              placeholder="邮箱地址"
+            <div style={{background:"#fff8ee",border:"1px solid #f0d060",borderRadius:8,padding:"8px 12px",marginBottom:16,fontSize:11,color:"#8a6010",lineHeight:1.6}}>
+              ⚠️ 云端同步功能目前需要科学上网才能使用
+            </div>
+            <input value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="邮箱地址"
               style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1.5px solid #e8e0d0",fontSize:14,marginBottom:10,boxSizing:"border-box",outline:"none",color:"#1a3a38"}} />
-            <input value={authPassword} onChange={e=>setAuthPassword(e.target.value)}
-              type="password" placeholder="密码（至少6位）"
+            <input value={authPassword} onChange={e=>setAuthPassword(e.target.value)} type="password" placeholder="密码（至少6位）"
               onKeyDown={e=>e.key==="Enter"&&(authModal==="signup"?handleSignUp():handleLogin())}
               style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1.5px solid #e8e0d0",fontSize:14,marginBottom:14,boxSizing:"border-box",outline:"none",color:"#1a3a38"}} />
             {authError && <div style={{color:"#e03040",fontSize:12,marginBottom:10,fontWeight:700}}>❌ {authError}</div>}
             {authMsg   && <div style={{color:"#1a9a60",fontSize:12,marginBottom:10,fontWeight:700}}>{authMsg}</div>}
-            <button disabled={authBusy||!authEmail||!authPassword}
-              onClick={authModal==="signup"?handleSignUp:handleLogin}
+            <button disabled={authBusy||!authEmail||!authPassword} onClick={authModal==="signup"?handleSignUp:handleLogin}
               style={{width:"100%",padding:"12px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:15,fontWeight:900,cursor:"pointer",marginBottom:10,opacity:(authBusy||!authEmail||!authPassword)?0.6:1}}>
               {authBusy ? "处理中…" : authModal==="signup" ? "注册" : "登录"}
             </button>
@@ -937,12 +988,151 @@ function App() {
         </div>
       )}
 
+      {/* 顶部 */}
+      <div style={{width:"100%",maxWidth:480,padding:"52px 20px 16px",borderBottom:`2px solid ${C.border}`,display:"flex",alignItems:"center",gap:12}}>
+        <button onClick={()=>navigate("settings")} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:C.teal,padding:0,lineHeight:1}}>‹</button>
+        <div>
+          <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:24,fontWeight:900,color:C.text}}>👤 我的账号</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2,fontWeight:700}}>头像 · 昵称 · 密码</div>
+        </div>
+      </div>
+
+      <div style={{width:"100%",maxWidth:480,padding:"16px 20px",display:"flex",flexDirection:"column",gap:14}}>
+
+        {/* 未登录状态 */}
+        {!authUser ? (
+          <div style={{background:"#fff",borderRadius:16,padding:32,textAlign:"center",border:`2px solid ${C.border}`}}>
+            <div style={{fontSize:48,marginBottom:12}}>🔒</div>
+            <div style={{fontSize:16,fontWeight:900,color:C.text,marginBottom:8}}>登录后管理账号资料</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:20,lineHeight:1.7}}>
+              注册免费账号，可同步数据到云端<br/>
+              <span style={{color:"#c07010",fontWeight:700}}>⚠️ 目前需要科学上网才能使用</span>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+              <button onClick={()=>{setAuthModal("login");setAuthError("");setAuthMsg("");}}
+                style={{padding:"11px 28px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:14,fontWeight:900,cursor:"pointer"}}>
+                登录
+              </button>
+              <button onClick={()=>{setAuthModal("signup");setAuthError("");setAuthMsg("");}}
+                style={{padding:"11px 28px",borderRadius:10,border:`2px solid ${C.accent}`,background:"#fff",color:C.accent,fontSize:14,fontWeight:900,cursor:"pointer"}}>
+                注册
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* 头像 + 昵称卡片 */}
+            <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`}}>
+              <div style={{fontSize:15,fontWeight:900,marginBottom:16,color:C.text}}>🖼️ 头像与昵称</div>
+
+              {/* 头像上传 */}
+              <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:20}}>
+                <div style={{position:"relative",flexShrink:0}}>
+                  {profileAvatar
+                    ? <img src={profileAvatar} style={{width:72,height:72,borderRadius:"50%",objectFit:"cover",border:`3px solid ${C.accent}`}} />
+                    : <div style={{width:72,height:72,borderRadius:"50%",background:"linear-gradient(135deg,#ff6bab,#c97de8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,color:"#fff",fontWeight:900,border:`3px solid ${C.accent}`}}>
+                        {(profileNickname||authUser.email)[0].toUpperCase()}
+                      </div>
+                  }
+                  <label style={{position:"absolute",bottom:0,right:0,width:24,height:24,borderRadius:"50%",background:C.teal,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",border:"2px solid #fff"}}>
+                    <span style={{fontSize:12,color:"#fff"}}>✎</span>
+                    <input type="file" accept="image/*" onChange={handleAvatarUpload} style={{display:"none"}} />
+                  </label>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12,color:C.muted,marginBottom:4,fontWeight:700}}>点击头像右下角修改</div>
+                  <div style={{fontSize:11,color:C.muted}}>支持 JPG/PNG，最大 500KB</div>
+                  {profileAvatar && (
+                    <button onClick={()=>setProfileAvatar("")} style={{marginTop:6,background:"none",border:"none",color:"#e03040",fontSize:11,cursor:"pointer",padding:0,fontWeight:700}}>
+                      × 删除头像
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 昵称 */}
+              <div style={{marginBottom:16}}>
+                <label style={{fontSize:12,color:C.teal,display:"block",marginBottom:6,fontWeight:900,letterSpacing:.5}}>显示昵称</label>
+                <input value={profileNickname} onChange={e=>setProfileNickname(e.target.value)}
+                  placeholder={authUser.email}
+                  maxLength={20}
+                  style={{width:"100%",padding:"10px 14px",borderRadius:10,border:`1.5px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none",color:C.text}} />
+                <div style={{fontSize:11,color:C.muted,marginTop:4,textAlign:"right"}}>{profileNickname.length}/20</div>
+              </div>
+
+              {/* 邮箱（只读） */}
+              <div style={{marginBottom:16}}>
+                <label style={{fontSize:12,color:C.teal,display:"block",marginBottom:6,fontWeight:900,letterSpacing:.5}}>邮箱（不可修改）</label>
+                <div style={{padding:"10px 14px",borderRadius:10,border:`1.5px solid ${C.border}`,fontSize:14,color:C.muted,background:"#f8f5f0"}}>
+                  {authUser.email}
+                </div>
+              </div>
+
+              {profileMsg && <div style={{fontSize:12,fontWeight:800,color:profileMsg.startsWith("✅")?"#1a9a60":"#e03040",marginBottom:10,textAlign:"center"}}>{profileMsg}</div>}
+              <button onClick={saveProfile} disabled={profileSaving}
+                style={{width:"100%",padding:"11px",borderRadius:10,border:"none",background:profileSaving?"#e0e0e0":"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:14,fontWeight:700,cursor:profileSaving?"default":"pointer"}}>
+                {profileSaving ? "保存中…" : "保存资料"}
+              </button>
+            </div>
+
+            {/* 修改密码卡片 */}
+            <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`}}>
+              <div style={{fontSize:15,fontWeight:900,marginBottom:16,color:C.text}}>🔑 修改密码</div>
+              <div style={{marginBottom:10}}>
+                <label style={{fontSize:12,color:C.teal,display:"block",marginBottom:6,fontWeight:900,letterSpacing:.5}}>新密码</label>
+                <input value={newPwd} onChange={e=>setNewPwd(e.target.value)} type="password" placeholder="至少6位"
+                  style={{width:"100%",padding:"10px 14px",borderRadius:10,border:`1.5px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none",color:C.text}} />
+              </div>
+              <div style={{marginBottom:14}}>
+                <label style={{fontSize:12,color:C.teal,display:"block",marginBottom:6,fontWeight:900,letterSpacing:.5}}>确认新密码</label>
+                <input value={newPwdConfirm} onChange={e=>setNewPwdConfirm(e.target.value)} type="password" placeholder="再输一次"
+                  style={{width:"100%",padding:"10px 14px",borderRadius:10,border:`1.5px solid ${C.border}`,fontSize:14,boxSizing:"border-box",outline:"none",color:C.text}} />
+              </div>
+              {pwdMsg && <div style={{fontSize:12,fontWeight:800,color:pwdMsg.startsWith("✅")?"#1a9a60":"#e03040",marginBottom:10,textAlign:"center"}}>{pwdMsg}</div>}
+              <button onClick={changePassword} disabled={!newPwd||!newPwdConfirm}
+                style={{width:"100%",padding:"11px",borderRadius:10,border:"none",background:(!newPwd||!newPwdConfirm)?"#e0e0e0":"linear-gradient(135deg,#5ecec8,#1a8a84)",color:"#fff",fontSize:14,fontWeight:700,cursor:(!newPwd||!newPwdConfirm)?"default":"pointer"}}>
+                修改密码
+              </button>
+            </div>
+
+            {/* 退出登录 */}
+            <button onClick={handleLogout}
+              style={{width:"100%",padding:"13px",borderRadius:12,border:"2px solid #e8e0d0",background:"#fff",color:C.muted,fontSize:14,fontWeight:700,cursor:"pointer"}}>
+              退出登录
+            </button>
+          </>
+        )}
+      </div>
+      <BottomNav page="settings" navigate={navigate} />
+    </div>
+  );
+
+  if (page === "settings") return (
+    <div className="cream-bg" style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
+
       <div style={{width:"100%",maxWidth:480,padding:"52px 20px 16px",borderBottom:`2px solid ${C.border}`}}>
         <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:24,fontWeight:900,color:C.text}}>⚙️ 我的设置</div>
         <div style={{fontSize:12,color:C.muted,marginTop:4,fontWeight:700}}>团体管理 · 数据备份与恢复</div>
       </div>
 
       <div style={{width:"100%",maxWidth:480,padding:"16px 20px",display:"flex",flexDirection:"column",gap:14}}>
+
+        {/* 账号入口卡片 */}
+        <button onClick={()=>navigate("account")}
+          style={{width:"100%",background:"linear-gradient(135deg,#fff0f8,#f8f0ff)",borderRadius:16,padding:"16px 20px",border:`2px solid ${C.accent}55`,boxShadow:`0 4px 0 0 ${C.accent}33`,cursor:"pointer",display:"flex",alignItems:"center",gap:14,textAlign:"left"}}>
+          <div style={{width:48,height:48,borderRadius:"50%",background:authUser?"linear-gradient(135deg,#ff6bab,#c97de8)":"#f0ece4",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:"#fff",fontWeight:900,flexShrink:0,border:`2px solid ${authUser?C.accent:C.border}`}}>
+            {authUser ? (profileAvatar ? <img src={profileAvatar} style={{width:44,height:44,borderRadius:"50%",objectFit:"cover"}} /> : (profileNickname||authUser.email)[0].toUpperCase()) : "👤"}
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:900,color:C.text}}>
+              {authUser ? (profileNickname || authUser.email) : "登录 / 注册账号"}
+            </div>
+            <div style={{fontSize:12,color:C.muted,marginTop:2,fontWeight:700}}>
+              {authUser ? "✅ 已登录 · 点击管理账号资料" : "头像 · 昵称 · 云端同步"}
+            </div>
+          </div>
+          <div style={{fontSize:18,color:C.muted}}>›</div>
+        </button>
 
         {/* 我的团体 */}
         <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`}}>
@@ -977,42 +1167,18 @@ function App() {
 
         {/* 账号登录 + 云端同步 */}
         <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`}}>
-          <div style={{fontSize:15,fontWeight:900,marginBottom:4,color:C.text}}>☁️ 账号与云端同步</div>
-          <div style={{fontSize:12,color:C.muted,marginBottom:14,lineHeight:1.6}}>登录后可将数据备份到云端，换设备或清除缓存后也能恢复</div>
-
-          {authLoading ? (
-            <div style={{textAlign:"center",color:C.muted,padding:"12px 0",fontSize:13}}>加载中…</div>
-          ) : !authUser ? (
-            <>
-              <div style={{background:"#f8f5ff",border:"1.5px solid #c97de844",borderRadius:10,padding:"11px 14px",marginBottom:14,fontSize:12,color:"#6a4a8a",lineHeight:1.7}}>
-                <div style={{fontWeight:900,marginBottom:3}}>💡 为什么需要账号？</div>
-                <div>· 注册免费账号，一键把数据同步到云端</div>
-                <div>· 换手机、换浏览器后可以直接从云端恢复</div>
-                <div>· 不需要账号也可以继续使用本地备份功能</div>
-              </div>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>{setAuthModal("login");setAuthError("");setAuthMsg("");}}
-                  style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}}>
-                  登录
-                </button>
-                <button onClick={()=>{setAuthModal("signup");setAuthError("");setAuthMsg("");}}
-                  style={{flex:1,padding:"11px",borderRadius:10,border:`2px solid ${C.accent}`,background:"#fff",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer"}}>
-                  注册
-                </button>
-              </div>
-            </>
+          <div style={{fontSize:15,fontWeight:900,marginBottom:4,color:C.text}}>☁️ 云端同步</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:14,lineHeight:1.6}}>
+            登录账号后可将数据备份到云端，换设备后可恢复
+            <span style={{display:"block",color:"#c07010",fontWeight:700,marginTop:2}}>⚠️ 目前需要科学上网才能使用</span>
+          </div>
+          {!authUser ? (
+            <button onClick={()=>navigate("account")}
+              style={{width:"100%",padding:"11px",borderRadius:10,border:`2px solid ${C.accent}`,background:"#fff8fa",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer"}}>
+              前往登录 →
+            </button>
           ) : (
             <>
-              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,background:"#f8fff8",border:"1.5px solid #5ecec844",borderRadius:10,padding:"11px 14px"}}>
-                <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,#ff6bab,#c97de8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"#fff",fontWeight:900,flexShrink:0}}>
-                  {authUser.email[0].toUpperCase()}
-                </div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:900,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{authUser.email}</div>
-                  <div style={{fontSize:11,color:"#1a9a60",marginTop:1,fontWeight:700}}>✅ 已登录</div>
-                </div>
-                <button onClick={handleLogout} style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"#fff",color:C.muted,fontSize:12,cursor:"pointer",fontWeight:700,flexShrink:0}}>退出</button>
-              </div>
               {cloudMsg && <div style={{fontSize:12,fontWeight:800,color:cloudMsg.startsWith("✅")?"#1a9a60":"#e03040",marginBottom:10,textAlign:"center"}}>{cloudMsg}</div>}
               <div style={{display:"flex",gap:8}}>
                 <button onClick={cloudUpload} disabled={cloudSyncing}
