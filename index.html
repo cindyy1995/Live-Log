@@ -2722,8 +2722,8 @@ function AnnivDetailPage({ selAnniv, birthdays, anniversaries, navigate, setEdit
     const daysToNext = Math.round((nextBday - todayD) / 86400000);
     const age = todayD.getFullYear() - by - ((todayD.getMonth()+1 < bm || (todayD.getMonth()+1===bm && todayD.getDate()<bd))?1:0);
     const isToday = daysToNext === 0;
-    countdowns = [{ label: isToday?"今天":"还有", num: isToday?age+1:daysToNext, unit: isToday?`岁生日 🎂`:`天 · ${age+1}岁生日`, daysToNext, isToday }];
-    totalDaysLabel = `${raw.birthday} · 现在${age}岁`;
+    countdowns = [{ label: isToday?"今天":"还有", num: isToday?age:daysToNext, unit: isToday?`岁生日 🎂`:`天 · ${age+1}岁生日`, daysToNext, isToday }];
+    totalDaysLabel = `${raw.birthday} · ${isToday?`今天${age}岁生日 🎉`:`现在${age}岁`}`;
     diffDays = -daysToNext; isPast = false; absDays = daysToNext;
   } else {
     const start = new Date(raw.startDate);
