@@ -1846,13 +1846,29 @@ function App() {
                 setTimeout(shoot, 80); // 等待 React re-render
               };
 
-              const shareWeibo = () => {
+              const shareStats = async () => {
                 const name = profileNickname || (authUser ? authUser.email.split("@")[0] : "");
                 const yearLabel = statsYear === "all" ? "全部" : statsYear + "年";
                 const text = `${name ? name + "的" : "我的"}${yearLabel}演出记录 | 用LiveRoku记录每一场偶活 🎤✨`;
-                const url = encodeURIComponent(window.location.href);
-                const title = encodeURIComponent(text);
-                window.open(`https://service.weibo.com/share/share.php?url=${url}&title=${title}`, "_blank");
+                const url = window.location.href;
+
+                if (navigator.share) {
+                  // 支持系统原生分享（iOS Safari、安卓Chrome等）
+                  try {
+                    await navigator.share({ title: "LiveRoku 演出统计", text, url });
+                  } catch(e) {
+                    // 用户取消分享，不做任何处理
+                  }
+                } else {
+                  // 降级：复制文字到剪贴板
+                  try {
+                    await navigator.clipboard.writeText(`${text} ${url}`);
+                    alert("分享内容已复制到剪贴板，可粘贴到微博、微信等任意平台 📋");
+                  } catch(e) {
+                    // 再降级：跳转微博网页版
+                    window.open(`https://service.weibo.com/share/share.php?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`, "_blank");
+                  }
+                }
               };
 
               // 进度条行组件（inline）
@@ -1888,7 +1904,7 @@ function App() {
                       <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
                     </svg>
                   </button>
-                  <button onClick={shareWeibo} title="分享到微博" style={{width:36,height:36,borderRadius:10,background:"#f0ece4",border:`2px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
+                  <button onClick={shareStats} title="分享" style={{width:36,height:36,borderRadius:10,background:"#f0ece4",border:`2px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
                     </svg>
