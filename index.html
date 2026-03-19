@@ -40,6 +40,7 @@
   @keyframes fadeUp    { from { opacity:0; transform:translateY(22px); } to { opacity:1; transform:translateY(0); } }
   @keyframes floatDeco { 0%,100% { transform:translateY(0) rotate(0deg); } 50% { transform:translateY(-8px) rotate(6deg); } }
   @keyframes logoBounce { 0%,100% { transform:translateY(0); } 40% { transform:translateY(-10px); } 60% { transform:translateY(-5px); } }
+  @keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
   .fadeUp-1  { animation: fadeUp .6s .0s  cubic-bezier(.22,1,.36,1) both; }
   .fadeUp-2  { animation: fadeUp .6s .12s cubic-bezier(.22,1,.36,1) both; }
   .fadeUp-3  { animation: fadeUp .6s .24s cubic-bezier(.22,1,.36,1) both; }
@@ -434,7 +435,12 @@ function loadLS(key, def) { try { return JSON.parse(localStorage.getItem(key) ||
 
 // ===== Main App =====
 function App() {
-  const [page, setPage]   = useState("splash");
+  const getPageFromHash = () => {
+    const hash = window.location.hash.replace("#/", "").split("?")[0];
+    const valid = ["splash","calendar","list","annivs","settings","account","stats","anniv-detail"];
+    return valid.includes(hash) ? hash : "splash";
+  };
+  const [page, setPage] = useState(getPageFromHash);
   const [year, setYear]   = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth());
   const [events, setEvents]           = useState(() => loadLS("ic_events", []));
@@ -478,6 +484,10 @@ function App() {
   const [authError, setAuthError]         = useState("");
   const [authBusy, setAuthBusy]           = useState(false);
   const [authMsg, setAuthMsg]             = useState("");
+  const [resetEmail, setResetEmail]       = useState("");
+  const [resetBusy, setResetBusy]         = useState(false);
+  const [resetMsg, setResetMsg]           = useState("");
+  const [logoutBusy, setLogoutBusy]       = useState(false);
   const [cloudSyncing, setCloudSyncing]   = useState(false);
   const [cloudMsg, setCloudMsg]           = useState("");
 
@@ -562,9 +572,22 @@ function App() {
   };
 
   const handleLogout = async () => {
+    setLogoutBusy(true);
     await supa.auth.signOut();
     setCloudMsg("");
     setProfileNickname(""); setProfileAvatar(""); setProfileMsg(""); setPwdMsg("");
+    setLogoutBusy(false);
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetEmail) { setResetMsg("❌ 请输入邮箱地址"); return; }
+    setResetBusy(true); setResetMsg("");
+    const { error } = await supa.auth.resetPasswordForEmail(resetEmail, {
+      redirectTo: window.location.origin,
+    });
+    if (error) setResetMsg("❌ 发送失败：" + error.message);
+    else setResetMsg("✅ 重置邮件已发送，请查收邮箱");
+    setResetBusy(false);
   };
 
   // 登录后加载资料
@@ -611,6 +634,21 @@ function App() {
   useEffect(() => localStorage.setItem("ic_birthdays", JSON.stringify(birthdays)), [birthdays]);
   useEffect(() => localStorage.setItem("ic_anniversaries", JSON.stringify(anniversaries)), [anniversaries]);
   useEffect(() => localStorage.setItem("ic_groups", JSON.stringify(myGroups)), [myGroups]);
+
+  // ── Hash 路由同步 ──
+  useEffect(() => {
+    window.location.hash = "/" + page;
+  }, [page]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash.replace("#/", "").split("?")[0];
+      const valid = ["splash","calendar","list","annivs","settings","account","stats","anniv-detail"];
+      if (valid.includes(hash)) setPage(hash);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
 
   // ── get items for a date ──
   const itemsFor = useCallback((ds) => {
@@ -888,7 +926,7 @@ function App() {
       <div className="fadeUp-1" style={{textAlign:"center",marginBottom:44,position:"relative",zIndex:1}}>
         <img src="data:image/jpeg;base64,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" className="logo-bounce" style={{width:108,height:108,borderRadius:28,margin:"0 auto 20px",objectFit:"cover",boxShadow:"0 6px 0 0 #c0306050, 0 12px 32px #ff6bab44"}} />
         <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:38,fontWeight:900,color:"#1a3a38",letterSpacing:-1,lineHeight:1}}>
-          Live<span style={{color:"#ff6bab"}}>Log</span>
+          Live<span style={{color:"#ff6bab"}}>Roku</span>
         </div>
         <div style={{fontSize:12,color:"#5a9994",marginTop:8,letterSpacing:4,fontWeight:700}}>不当地偶厨 只做现场派</div>
       </div>
@@ -957,34 +995,65 @@ function App() {
       {/* 登录/注册弹窗 */}
       {authModal && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:360,boxShadow:"0 20px 60px #00000030"}}>
+          <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:360,boxShadow:"0 20px 60px #00000030",position:"relative"}}>
+
             <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:22,fontWeight:900,color:"#1a3a38",marginBottom:4}}>
-              {authModal==="signup" ? "✨ 创建账号" : "👋 欢迎回来"}
+              {authModal==="signup" ? "✨ 创建账号" : authModal==="reset" ? "🔑 找回密码" : "👋 欢迎回来"}
             </div>
             <div style={{fontSize:12,color:"#5a9994",marginBottom:6,fontWeight:700}}>
-              {authModal==="signup" ? "注册后可将数据同步到云端，跨设备使用" : "登录以使用云端数据同步"}
+              {authModal==="signup" ? "注册后可将数据同步到云端，跨设备使用" : authModal==="reset" ? "输入注册邮箱，我们将发送重置链接" : "登录以使用云端数据同步"}
             </div>
             <div style={{background:"#fff8ee",border:"1px solid #f0d060",borderRadius:8,padding:"8px 12px",marginBottom:16,fontSize:11,color:"#8a6010",lineHeight:1.6}}>
               ⚠️ 云端同步功能目前需要科学上网才能使用
             </div>
-            <input value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="邮箱地址"
-              style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1.5px solid #e8e0d0",fontSize:14,marginBottom:10,boxSizing:"border-box",outline:"none",color:"#1a3a38"}} />
-            <input value={authPassword} onChange={e=>setAuthPassword(e.target.value)} type="password" placeholder="密码（至少6位）"
-              onKeyDown={e=>e.key==="Enter"&&(authModal==="signup"?handleSignUp():handleLogin())}
-              style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1.5px solid #e8e0d0",fontSize:14,marginBottom:14,boxSizing:"border-box",outline:"none",color:"#1a3a38"}} />
-            {authError && <div style={{color:"#e03040",fontSize:12,marginBottom:10,fontWeight:700}}>❌ {authError}</div>}
-            {authMsg   && <div style={{color:"#1a9a60",fontSize:12,marginBottom:10,fontWeight:700}}>{authMsg}</div>}
-            <button disabled={authBusy||!authEmail||!authPassword} onClick={authModal==="signup"?handleSignUp:handleLogin}
-              style={{width:"100%",padding:"12px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:15,fontWeight:900,cursor:"pointer",marginBottom:10,opacity:(authBusy||!authEmail||!authPassword)?0.6:1}}>
-              {authBusy ? "处理中…" : authModal==="signup" ? "注册" : "登录"}
-            </button>
-            <div style={{textAlign:"center",fontSize:13,color:"#5a9994"}}>
-              {authModal==="signup"
-                ? <span>已有账号？<button onClick={()=>{setAuthModal("login");setAuthError("");setAuthMsg("");}} style={{background:"none",border:"none",color:"#ff6bab",fontWeight:900,cursor:"pointer"}}>登录</button></span>
-                : <span>没有账号？<button onClick={()=>{setAuthModal("signup");setAuthError("");setAuthMsg("");}} style={{background:"none",border:"none",color:"#ff6bab",fontWeight:900,cursor:"pointer"}}>注册</button></span>
-              }
-              <button onClick={()=>{setAuthModal(null);setAuthError("");setAuthMsg("");}} style={{display:"block",margin:"10px auto 0",background:"none",border:"none",color:"#b0a090",fontSize:12,cursor:"pointer"}}>取消</button>
-            </div>
+
+            {authModal === "reset" ? (
+              <>
+                <input value={resetEmail} onChange={e=>setResetEmail(e.target.value)} placeholder="注册时使用的邮箱"
+                  onKeyDown={e=>e.key==="Enter"&&handleResetPassword()}
+                  style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1.5px solid #e8e0d0",fontSize:14,marginBottom:14,boxSizing:"border-box",outline:"none",color:"#1a3a38"}} />
+                {resetMsg && <div style={{fontSize:12,marginBottom:10,fontWeight:700,color:resetMsg.startsWith("✅")?"#1a9a60":"#e03040"}}>{resetMsg}</div>}
+                <button disabled={resetBusy||!resetEmail} onClick={handleResetPassword}
+                  style={{width:"100%",padding:"12px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:15,fontWeight:900,cursor:"pointer",marginBottom:10,opacity:(resetBusy||!resetEmail)?0.6:1}}>
+                  {resetBusy ? "发送中…" : "发送重置邮件"}
+                </button>
+                <button onClick={()=>{setAuthModal("login");setResetMsg("");setResetEmail("");}} style={{display:"block",margin:"0 auto",background:"none",border:"none",color:"#b0a090",fontSize:12,cursor:"pointer"}}>返回登录</button>
+              </>
+            ) : (
+              <>
+                <input value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="邮箱地址"
+                  style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1.5px solid #e8e0d0",fontSize:14,marginBottom:10,boxSizing:"border-box",outline:"none",color:"#1a3a38"}} />
+                <input value={authPassword} onChange={e=>setAuthPassword(e.target.value)} type="password" placeholder="密码（至少6位）"
+                  onKeyDown={e=>e.key==="Enter"&&(authModal==="signup"?handleSignUp():handleLogin())}
+                  style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1.5px solid #e8e0d0",fontSize:14,marginBottom:6,boxSizing:"border-box",outline:"none",color:"#1a3a38"}} />
+                {authModal==="login" && (
+                  <div style={{textAlign:"right",marginBottom:10}}>
+                    <button onClick={()=>{setAuthModal("reset");setAuthError("");setAuthMsg("");}} style={{background:"none",border:"none",color:C.teal,fontSize:12,cursor:"pointer",fontWeight:700}}>忘记密码？</button>
+                  </div>
+                )}
+                {authError && <div style={{color:"#e03040",fontSize:12,marginBottom:10,fontWeight:700}}>❌ {authError}</div>}
+                {authMsg   && <div style={{color:"#1a9a60",fontSize:12,marginBottom:10,fontWeight:700}}>{authMsg}</div>}
+                <button disabled={authBusy||!authEmail||!authPassword} onClick={authModal==="signup"?handleSignUp:handleLogin}
+                  style={{width:"100%",padding:"12px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:15,fontWeight:900,cursor:"pointer",marginBottom:10,opacity:(authBusy||!authEmail||!authPassword)?0.6:1}}>
+                  {authBusy ? "处理中…" : authModal==="signup" ? "注册" : "登录"}
+                </button>
+                {authModal==="signup" && (
+                  <div style={{fontSize:11,color:"#b0a898",textAlign:"center",marginBottom:8,lineHeight:1.6}}>
+                    注册即表示您同意
+                    <button onClick={()=>setModal("terms")} style={{background:"none",border:"none",color:C.teal,fontSize:11,cursor:"pointer",padding:"0 2px",textDecoration:"underline"}}>用户协议</button>
+                    和
+                    <button onClick={()=>setModal("privacy")} style={{background:"none",border:"none",color:C.teal,fontSize:11,cursor:"pointer",padding:"0 2px",textDecoration:"underline"}}>隐私政策</button>
+                  </div>
+                )}
+                <div style={{textAlign:"center",fontSize:13,color:"#5a9994"}}>
+                  {authModal==="signup"
+                    ? <span>已有账号？<button onClick={()=>{setAuthModal("login");setAuthError("");setAuthMsg("");}} style={{background:"none",border:"none",color:"#ff6bab",fontWeight:900,cursor:"pointer"}}>登录</button></span>
+                    : <span>没有账号？<button onClick={()=>{setAuthModal("signup");setAuthError("");setAuthMsg("");}} style={{background:"none",border:"none",color:"#ff6bab",fontWeight:900,cursor:"pointer"}}>注册</button></span>
+                  }
+                  <button onClick={()=>{setAuthModal(null);setAuthError("");setAuthMsg("");}} style={{display:"block",margin:"10px auto 0",background:"none",border:"none",color:"#b0a090",fontSize:12,cursor:"pointer"}}>取消</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1097,9 +1166,9 @@ function App() {
             </div>
 
             {/* 退出登录 */}
-            <button onClick={handleLogout}
-              style={{width:"100%",padding:"13px",borderRadius:12,border:"2px solid #e8e0d0",background:"#fff",color:C.muted,fontSize:14,fontWeight:700,cursor:"pointer"}}>
-              退出登录
+            <button onClick={handleLogout} disabled={logoutBusy}
+              style={{width:"100%",padding:"13px",borderRadius:12,border:"2px solid #e8e0d0",background:"#fff",color:C.muted,fontSize:14,fontWeight:700,cursor:logoutBusy?"default":"pointer"}}>
+              {logoutBusy ? "退出中…" : "退出登录"}
             </button>
           </>
         )}
@@ -1209,6 +1278,14 @@ function App() {
             ))}
           </div>
 
+          <div style={{background:"#fffbee",border:"1.5px solid #f0d060",borderRadius:10,padding:"11px 14px",marginBottom:14,fontSize:12,color:"#7a6010",lineHeight:1.8}}>
+            <div style={{fontWeight:900,marginBottom:4}}>⚠️ 关于数据存储</div>
+            <div>· 数据保存在<strong>当前浏览器</strong>中，换手机或换浏览器后数据不会跟随</div>
+            <div>· 同一台手机，Safari 和 Chrome 的数据<strong>互相独立</strong>，不会自动同步</div>
+            <div>· 登录账号后需手动点<strong>「上传到云端」</strong>备份，换设备后点<strong>「从云端恢复」</strong>还原</div>
+            <div style={{marginTop:4,color:"#c07010",fontWeight:800}}>建议：定期下载备份文件，多一份保障</div>
+          </div>
+
           <button onClick={()=>exportData(false)} style={{width:"100%",padding:"11px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:10}}>
             📤 下载备份文件
           </button>
@@ -1256,7 +1333,7 @@ function App() {
         <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`,textAlign:"center"}}>
           <div style={{fontSize:22,fontWeight:900,marginBottom:4}}>
             <span style={{color:"#ff6bab",fontFamily:"'Nunito',sans-serif"}}>Live</span>
-            <span style={{color:"#5ecec8",fontFamily:"'Nunito',sans-serif"}}>Log</span>
+            <span style={{color:"#5ecec8",fontFamily:"'Nunito',sans-serif"}}>Roku</span>
           </div>
           <div style={{fontSize:12,color:C.muted,marginBottom:10,fontWeight:700}}>地下偶像演出日历</div>
           <div style={{fontSize:11,color:C.muted,lineHeight:1.8}}>
@@ -1338,7 +1415,73 @@ function App() {
         </div>
       )}
 
-      <div style={{width:"100%",maxWidth:480,textAlign:"center",padding:"12px 20px 8px",fontSize:11,color:"#b0c4c2",fontWeight:700,letterSpacing:2}}>
+      {/* 隐私政策 + 用户协议 小按钮 */}
+      {/* 用户协议弹窗 */}
+      {modal==="terms" && (
+        <div style={{position:"fixed",inset:0,background:"#1a3a3888",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200}}
+          onClick={closeModal}>
+          <div style={{background:"#faf7f2",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,maxHeight:"80vh",overflowY:"auto",padding:"24px 20px 48px",border:`2px solid ${C.border}`,borderBottom:"none",boxShadow:"0 -4px 0 0 #b8eeeb"}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontSize:16,fontWeight:900,color:C.text}}>用户服务协议</div>
+              <button onClick={closeModal} style={{background:"#fff8ee",border:"2px solid #f0a830",color:"#f0a830",width:32,height:32,borderRadius:8,fontSize:15,fontWeight:900,cursor:"pointer",lineHeight:1}}>✕</button>
+            </div>
+            <div style={{fontSize:13,color:C.muted,lineHeight:2}}>
+              <div style={{marginBottom:10}}>欢迎使用 LiveRoku。使用本应用即表示您同意以下条款：</div>
+              <div>· 本应用由个人开发者独立开发，仅供个人演出记录使用，不承担任何商业责任。</div>
+              <div>· 用户对自己填写的数据负责，请勿上传违法违规内容。</div>
+              <div>· 本应用保留随时修改、中止或终止服务的权利，不另行通知。</div>
+              <div>· 本应用不对因服务中断、数据丢失导致的损失承担责任，请定期备份数据。</div>
+              <div>· 本协议适用中华人民共和国法律法规。</div>
+              <div style={{marginTop:16,color:"#b0a898",fontSize:12}}>最后更新：2026年3月</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 隐私政策弹窗 */}
+      {modal==="privacy" && (
+        <div style={{position:"fixed",inset:0,background:"#1a3a3888",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200}}
+          onClick={closeModal}>
+          <div style={{background:"#faf7f2",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,maxHeight:"80vh",overflowY:"auto",padding:"24px 20px 48px",border:`2px solid ${C.border}`,borderBottom:"none",boxShadow:"0 -4px 0 0 #b8eeeb"}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontSize:16,fontWeight:900,color:C.text}}>隐私政策</div>
+              <button onClick={closeModal} style={{background:"#fff8ee",border:"2px solid #f0a830",color:"#f0a830",width:32,height:32,borderRadius:8,fontSize:15,fontWeight:900,cursor:"pointer",lineHeight:1}}>✕</button>
+            </div>
+            <div style={{fontSize:13,color:C.muted,lineHeight:2}}>
+              <div style={{marginBottom:10}}>我们非常重视您的隐私，以下说明我们如何收集和使用您的信息：</div>
+              <div style={{fontWeight:900,color:C.text,marginBottom:4}}>收集的信息</div>
+              <div>· 注册时收集邮箱地址，用于账号登录和找回密码。</div>
+              <div>· 您填写的演出、生日、纪念日等数据，用于提供核心功能。</div>
+              <div>· 匿名访问统计（Vercel Analytics），用于改善产品，不含个人信息。</div>
+              <div style={{fontWeight:900,color:C.text,margin:"12px 0 4px"}}>如何使用</div>
+              <div>· 邮箱仅用于账号验证，不用于营销，不出售给第三方。</div>
+              <div>· 数据存储在 Supabase 云端，受安全策略保护，仅您本人可访问。</div>
+              <div style={{fontWeight:900,color:C.text,margin:"12px 0 4px"}}>数据删除</div>
+              <div>· 可在设置页清除本地数据，或发邮件申请删除账号及云端数据。</div>
+              <div style={{fontWeight:900,color:C.text,margin:"12px 0 4px"}}>第三方服务</div>
+              <div>· 本应用使用 Supabase（数据存储）和 Vercel（托管），适用各自隐私政策。</div>
+              <div style={{marginTop:16,color:C.teal,fontWeight:800}}>liveroku_official@163.com</div>
+              <div style={{color:"#b0a898",fontSize:12,marginTop:4}}>最后更新：2026年3月</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{width:"100%",maxWidth:480,textAlign:"center",padding:"4px 20px 8px",display:"flex",justifyContent:"center",gap:16}}>
+        <button onClick={()=>setModal("terms")}
+          style={{background:"none",border:"none",fontSize:11,color:"#b0a898",cursor:"pointer",textDecoration:"underline"}}>
+          用户协议
+        </button>
+        <span style={{fontSize:11,color:"#d0c8c0"}}>·</span>
+        <button onClick={()=>setModal("privacy")}
+          style={{background:"none",border:"none",fontSize:11,color:"#b0a898",cursor:"pointer",textDecoration:"underline"}}>
+          隐私政策
+        </button>
+      </div>
+
+      <div style={{width:"100%",maxWidth:480,textAlign:"center",padding:"4px 20px 8px",fontSize:11,color:"#b0c4c2",fontWeight:700,letterSpacing:2}}>
         ✦ LiveRoku · 地下偶像演出日程管理 ✦
       </div>
       <BottomNav page={page} navigate={navigate} prevPage={selAnniv?._prevPage} />
@@ -1358,7 +1501,7 @@ function App() {
               ? <span style={{fontSize:13,fontWeight:900,color:C.teal,fontFamily:"'Nunito',sans-serif"}}>{selAnniv?._prevPage==="calendar" ? "返回日历" : "返回纪念日"}</span>
               : page==="stats"
               ? <span style={{fontSize:13,fontWeight:900,color:C.teal,fontFamily:"'Nunito',sans-serif"}}>返回演出汇总</span>
-              : <><span style={{fontSize:13,fontWeight:900,color:"#ff6bab",fontFamily:"'Nunito',sans-serif",letterSpacing:"-0.5px"}}>Live</span><span style={{fontSize:13,fontWeight:900,color:C.teal,fontFamily:"'Nunito',sans-serif",letterSpacing:"-0.5px"}}>Log</span></>
+              : <><span style={{fontSize:13,fontWeight:900,color:"#ff6bab",fontFamily:"'Nunito',sans-serif",letterSpacing:"-0.5px"}}>Live</span><span style={{fontSize:13,fontWeight:900,color:C.teal,fontFamily:"'Nunito',sans-serif",letterSpacing:"-0.5px"}}>Roku</span></>
             }
           </div>
           <div style={{ fontFamily:"'Nunito','PingFang SC',sans-serif", fontSize:26, fontWeight:900, color:C.text }}>
@@ -1923,16 +2066,26 @@ function App() {
                 </div>
               {/* 图片预览弹窗 —— 长按保存 */}
               {exportPreview && (
-                <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:20}}
+                <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",padding:"20px 16px",overflowY:"auto"}}
                   onClick={()=>setExportPreview(null)}>
-                  <div style={{background:"#fff",borderRadius:16,padding:16,maxWidth:400,width:"100%"}} onClick={e=>e.stopPropagation()}>
-                    <div style={{fontSize:14,fontWeight:900,color:C.text,marginBottom:4,textAlign:"center"}}>📱 长按图片保存到相册</div>
-                    <div style={{fontSize:12,color:C.muted,marginBottom:12,textAlign:"center",lineHeight:1.6}}>
-                      iOS：长按图片 → 添加到照片<br />安卓：长按图片 → 保存图片
+                  <div style={{width:"100%",maxWidth:400,marginTop:20}} onClick={e=>e.stopPropagation()}>
+                    {/* 关闭按钮 */}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                      <div style={{fontSize:14,fontWeight:900,color:"#fff"}}>📱 长按图片保存到相册</div>
+                      <button onClick={()=>setExportPreview(null)}
+                        style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",width:32,height:32,borderRadius:"50%",fontSize:18,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        ✕
+                      </button>
                     </div>
-                    <img src={exportPreview} style={{width:"100%",borderRadius:10,display:"block"}} />
+                    {/* 提示 */}
+                    <div style={{background:"rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#fff",lineHeight:1.7,textAlign:"center"}}>
+                      iOS：长按图片 → 添加到照片<br />安卓：长按图片 → 下载图片
+                    </div>
+                    {/* 图片 */}
+                    <img src={exportPreview} style={{width:"100%",borderRadius:12,display:"block",boxShadow:"0 4px 20px rgba(0,0,0,0.4)"}} />
+                    {/* 关闭按钮 */}
                     <button onClick={()=>setExportPreview(null)}
-                      style={{width:"100%",marginTop:12,padding:"10px",borderRadius:10,border:`1.5px solid ${C.border}`,background:"#fff",color:C.muted,fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                      style={{width:"100%",marginTop:16,padding:"12px",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.4)",background:"rgba(255,255,255,0.15)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}}>
                       关闭
                     </button>
                   </div>
@@ -2026,17 +2179,18 @@ function App() {
           const daysToNext = Math.round((nextBday - todayD) / 86400000);
           // 现在的年龄
           const age = ty - by - ((tm < bm || (tm === bm && tdd < bd)) ? 1 : 0);
-          const nextAge = age + 1; // 下一个生日的岁数（今天生日时 = 刚满的年龄）
+          const nextAge = age + 1; // 下一个生日的岁数
+          const todayAge = age;    // 今天生日时刚满的年龄
           const countdowns = [{
             repeatType: "yearly",
             label: isToday ? "今天是" : "还有",
-            num: isToday ? nextAge : daysToNext,
+            num: isToday ? todayAge : daysToNext,
             unit: isToday ? `岁生日 🎂` : `天 · ${nextAge}岁生日`,
             daysToNext,
             isToday,
           }];
           const totalDaysLabel = isToday
-            ? `${b.birthday} · 今天${nextAge}岁生日 🎉`
+            ? `${b.birthday} · 今天${todayAge}岁生日 🎉`
             : `${b.birthday} · 现在${age}岁`;
           return {
             ...b, _isBirthday:true, _t:"birthday",
@@ -2437,6 +2591,41 @@ function App() {
                 <div style={{fontSize:12,color:C.muted,marginTop:8}}>已有记录不受影响</div>
               </div>
               <SBtn onClick={closeModal} label="好的" />
+            </>)}
+
+            {/* ── 用户协议 ── */}
+            {modal==="terms" && (<>
+              <MHead title="用户服务协议" onClose={closeModal} />
+              <div style={{fontSize:13,color:C.muted,lineHeight:2}}>
+                <div style={{marginBottom:10}}>欢迎使用 LiveRoku。使用本应用即表示您同意以下条款：</div>
+                <div>· 本应用由个人开发者独立开发，仅供个人演出记录使用，不承担任何商业责任。</div>
+                <div>· 用户对自己填写的数据负责，请勿上传违法违规内容。</div>
+                <div>· 本应用保留随时修改、中止或终止服务的权利，不另行通知。</div>
+                <div>· 本应用不对因服务中断、数据丢失导致的损失承担责任，请定期备份数据。</div>
+                <div>· 本协议适用中华人民共和国法律法规。</div>
+                <div style={{marginTop:16,color:"#b0a898",fontSize:12}}>最后更新：2026年3月</div>
+              </div>
+            </>)}
+
+            {/* ── 隐私政策 ── */}
+            {modal==="privacy" && (<>
+              <MHead title="隐私政策" onClose={closeModal} />
+              <div style={{fontSize:13,color:C.muted,lineHeight:2}}>
+                <div style={{marginBottom:10}}>我们非常重视您的隐私，以下说明我们如何收集和使用您的信息：</div>
+                <div style={{fontWeight:900,color:C.text,marginBottom:4}}>收集的信息</div>
+                <div>· 注册时收集邮箱地址，用于账号登录和找回密码。</div>
+                <div>· 您填写的演出、生日、纪念日等数据，用于提供核心功能。</div>
+                <div>· 匿名访问统计（Vercel Analytics），用于改善产品，不含个人信息。</div>
+                <div style={{fontWeight:900,color:C.text,margin:"12px 0 4px"}}>如何使用</div>
+                <div>· 邮箱仅用于账号验证，不用于营销，不出售给第三方。</div>
+                <div>· 数据存储在 Supabase 云端，受安全策略保护，仅您本人可访问。</div>
+                <div style={{fontWeight:900,color:C.text,margin:"12px 0 4px"}}>数据删除</div>
+                <div>· 可在设置页清除本地数据，或发邮件申请删除账号及云端数据。</div>
+                <div style={{fontWeight:900,color:C.text,margin:"12px 0 4px"}}>第三方服务</div>
+                <div>· 本应用使用 Supabase（数据存储）和 Vercel（托管），适用各自隐私政策。</div>
+                <div style={{marginTop:16,color:C.teal,fontWeight:800}}>liveroku_official@163.com</div>
+                <div style={{color:"#b0a898",fontSize:12,marginTop:4}}>最后更新：2026年3月</div>
+              </div>
             </>)}
 
           </div>
