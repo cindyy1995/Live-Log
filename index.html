@@ -2162,14 +2162,14 @@ function App() {
                   {isExporting && (
                     <div style={{paddingBottom:14,marginBottom:16,borderBottom:`2px solid ${C.border}`}}>
                       <div style={{fontSize:10,color:C.muted,fontWeight:800,letterSpacing:3,marginBottom:8}}>MY LIVE ROKU</div>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
-                        <div style={{fontSize:28,fontWeight:900,fontFamily:"'Nunito','PingFang SC',sans-serif",lineHeight:1}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:8}}>
+                        <div style={{fontSize: (() => { const n = (profileNickname || (authUser ? authUser.email.split("@")[0] : "")) ; return n.length > 8 ? 20 : n.length > 5 ? 24 : 28; })(), fontWeight:900,fontFamily:"'Nunito','PingFang SC',sans-serif",lineHeight:1.2,overflow:"hidden",flex:1,minWidth:0}}>
                           {profileNickname || (authUser ? authUser.email.split("@")[0] : null)
-                            ? <><span style={{color:"#ff6bab"}}>{profileNickname || authUser.email.split("@")[0]}</span><span style={{color:C.teal}}>的LiveRoku</span></>
+                            ? <><span style={{color:"#ff6bab",wordBreak:"break-all"}}>{profileNickname || authUser.email.split("@")[0]}</span><span style={{color:C.teal}}>的LiveRoku</span></>
                             : <><span style={{color:"#ff6bab"}}>我的</span><span style={{color:C.teal}}>LiveRoku</span></>
                           }
                         </div>
-                        <div style={{fontSize:13,fontWeight:800,color:C.muted,paddingBottom:3}}>{titleStr}</div>
+                        <div style={{fontSize:13,fontWeight:800,color:C.muted,paddingBottom:3,flexShrink:0}}>{titleStr}</div>
                       </div>
                     </div>
                   )}
