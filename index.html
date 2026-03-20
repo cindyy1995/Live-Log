@@ -437,7 +437,7 @@ function loadLS(key, def) { try { return JSON.parse(localStorage.getItem(key) ||
 function App() {
   const getPageFromHash = () => {
     const hash = window.location.hash.replace("#/", "").split("?")[0];
-    const valid = ["splash","calendar","list","annivs","settings","account","stats","anniv-detail"];
+    const valid = ["splash","calendar","list","annivs","settings","account","stats","anniv-detail","guide","groups","datamanage"];
     return valid.includes(hash) ? hash : "splash";
   };
   const [page, setPage] = useState(getPageFromHash);
@@ -653,7 +653,7 @@ function App() {
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace("#/", "").split("?")[0];
-      const valid = ["splash","calendar","list","annivs","settings","account","stats","anniv-detail"];
+      const valid = ["splash","calendar","list","annivs","settings","account","stats","anniv-detail","guide","groups","datamanage"];
       if (valid.includes(hash)) setPage(hash);
     };
     window.addEventListener("hashchange", onHashChange);
@@ -1249,40 +1249,22 @@ function App() {
     </div>
   );
 
-  if (page === "settings") return (
-    <div className="cream-bg" style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
-
-      <div style={{width:"100%",maxWidth:480,padding:"52px 20px 16px",borderBottom:`2px solid ${C.border}`}}>
-        <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:24,fontWeight:900,color:C.text}}>⚙️ 我的设置</div>
-        <div style={{fontSize:12,color:C.muted,marginTop:4,fontWeight:700}}>团体管理 · 数据备份与恢复</div>
+  // ── 我关注的团体页面 ──
+  if (page === "groups") return (
+    <div className="cream-bg" style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:40}}>
+      <div style={{width:"100%",maxWidth:480,padding:"52px 20px 16px",display:"flex",alignItems:"center",gap:12}}>
+        <button onClick={()=>navigate("settings")} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:C.teal,padding:0,lineHeight:1}}>‹</button>
+        <div>
+          <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:24,fontWeight:900,color:C.text}}>🎤 我关注的团体</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2,fontWeight:700}}>添加后可在演出记录中快速选择</div>
+        </div>
       </div>
-
-      <div style={{width:"100%",maxWidth:480,padding:"16px 20px",display:"flex",flexDirection:"column",gap:14}}>
-
-        {/* 账号入口卡片 */}
-        <button onClick={()=>navigate("account")}
-          style={{width:"100%",background:"linear-gradient(135deg,#fff0f8,#f8f0ff)",borderRadius:16,padding:"16px 20px",border:`2px solid ${C.accent}55`,boxShadow:`0 4px 0 0 ${C.accent}33`,cursor:"pointer",display:"flex",alignItems:"center",gap:14,textAlign:"left"}}>
-          <div style={{width:48,height:48,borderRadius:"50%",background:authUser?"linear-gradient(135deg,#ff6bab,#c97de8)":"#f0ece4",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:"#fff",fontWeight:900,flexShrink:0,border:`2px solid ${authUser?C.accent:C.border}`}}>
-            {authUser ? (profileAvatar ? <img src={profileAvatar} style={{width:44,height:44,borderRadius:"50%",objectFit:"cover"}} /> : (profileNickname||authUser.email)[0].toUpperCase()) : "👤"}
-          </div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:15,fontWeight:900,color:C.text}}>
-              {authUser ? (profileNickname || authUser.email) : "登录 / 注册账号"}
-            </div>
-            <div style={{fontSize:12,color:C.muted,marginTop:2,fontWeight:700}}>
-              {authUser ? "✅ 已登录 · 点击管理账号资料" : "头像 · 昵称 · 云端同步"}
-            </div>
-          </div>
-          <div style={{fontSize:18,color:C.muted}}>›</div>
-        </button>
-
-        {/* 我的团体 */}
+      <div style={{width:"100%",maxWidth:480,padding:"0 20px",display:"flex",flexDirection:"column",gap:14}}>
         <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`}}>
-          <div style={{fontSize:15,fontWeight:900,marginBottom:3,color:C.text}}>🎤 我关注的团体</div>
-          <div style={{fontSize:12,color:C.muted,marginBottom:14,lineHeight:1.5,fontWeight:700}}>添加后在填写演出时可以快速选择</div>
-          {myGroups.length===0 && <div style={{textAlign:"center",color:C.muted,padding:"12px 0",fontSize:13}}>还没有添加团体</div>}
-          {/* 团体标签列表 - 横排气泡，点铅笔编辑 */}
-          <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+          {myGroups.length===0 && (
+            <div style={{textAlign:"center",color:C.muted,padding:"20px 0",fontSize:13}}>还没有添加团体，快来添加你关注的偶像团体吧！</div>
+          )}
+          <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:myGroups.length>0?14:0}}>
             {myGroups.map((g,i)=>(
               <div key={g} style={{display:"inline-flex",alignItems:"center",gap:4,background:"#fff0f8",border:`1.5px solid ${C.accent}44`,borderRadius:20,padding:"6px 8px 6px 14px"}}>
                 <span style={{fontSize:13,fontWeight:700,color:C.text}}>{g}</span>
@@ -1305,9 +1287,69 @@ function App() {
             </button>
           </div>
         </div>
+      </div>
 
+      {/* 编辑团体弹窗（复用）*/}
+      {editingGroup !== null && (
+        <div style={{position:"fixed",inset:0,background:"#1a3a3888",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200}}
+          onClick={()=>setEditingGroup(null)}>
+          <div style={{background:"#faf7f2",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,padding:"24px 20px 48px",border:"2px solid #e8e0d0",borderBottom:"none",boxShadow:"0 -4px 0 0 #5ecec855"}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:16,fontWeight:900,color:C.text}}>编辑团体标签</div>
+              <button onClick={()=>setEditingGroup(null)} style={{background:"#fff8ee",border:"2px solid #f0a830",color:"#f0a830",fontSize:15,cursor:"pointer",width:32,height:32,borderRadius:8,fontWeight:900,lineHeight:1}}>✕</button>
+            </div>
+            <input value={editGroupVal} onChange={e=>setEditGroupVal(e.target.value)} autoFocus
+              onKeyDown={e=>{if(e.key==="Enter"&&editGroupVal.trim()){renameGroup(editingGroup,editGroupVal);setEditingGroup(null);}if(e.key==="Escape")setEditingGroup(null);}}
+              style={{width:"100%",background:"#fff",border:`2px solid ${C.teal}`,borderRadius:10,padding:"11px 14px",fontSize:15,fontWeight:700,color:C.text,outline:"none",boxSizing:"border-box",marginBottom:12}} />
+            <button onClick={()=>{if(editGroupVal.trim()){renameGroup(editingGroup,editGroupVal);setEditingGroup(null);}}}
+              disabled={!editGroupVal.trim()||editGroupVal.trim()===editingGroup}
+              style={{width:"100%",padding:"12px",borderRadius:10,border:"none",background:(!editGroupVal.trim()||editGroupVal.trim()===editingGroup)?"#e8e0d0":"linear-gradient(135deg,#5ecec8,#3ab5ae)",color:(!editGroupVal.trim()||editGroupVal.trim()===editingGroup)?"#b0a898":"#fff",fontSize:14,fontWeight:900,cursor:"pointer",marginBottom:8}}>
+              保存修改
+            </button>
+            <button onClick={()=>setEditingGroup(null)}
+              style={{width:"100%",padding:"11px",borderRadius:10,border:`2px solid ${C.border}`,background:"#fff",color:C.muted,fontSize:13,fontWeight:700,cursor:"pointer"}}>
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
-        {/* 账号登录 + 云端同步 */}
+  // ── 数据管理页面 ──
+  if (page === "datamanage") return (
+    <div className="cream-bg" style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:40}}>
+      <div style={{width:"100%",maxWidth:480,padding:"52px 20px 16px",display:"flex",alignItems:"center",gap:12}}>
+        <button onClick={()=>navigate("settings")} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:C.teal,padding:0,lineHeight:1}}>‹</button>
+        <div>
+          <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:24,fontWeight:900,color:C.text}}>💾 数据管理</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2,fontWeight:700}}>备份 · 云端同步 · 清除数据</div>
+        </div>
+      </div>
+
+      <div style={{width:"100%",maxWidth:480,padding:"0 20px",display:"flex",flexDirection:"column",gap:14}}>
+
+        {/* 数据概览 */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+          {[["演出",events.length,C.coral],["生日",birthdays.length,C.gold],["纪念日",anniversaries.length,C.teal],["团体",myGroups.length,"#c97de8"]].map(([label,count,color])=>(
+            <div key={label} style={{background:"#fff",border:`2px solid ${C.border}`,borderRadius:12,padding:"12px 6px",textAlign:"center",boxShadow:`0 3px 0 0 ${C.border}`}}>
+              <div style={{fontSize:24,fontWeight:900,color}}>{count}</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:2,fontWeight:700}}>{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* 提示 */}
+        <div style={{background:"#fffbee",border:"1.5px solid #f0d060",borderRadius:12,padding:"12px 16px",fontSize:12,color:"#7a6010",lineHeight:1.8}}>
+          <div style={{fontWeight:900,marginBottom:4}}>⚠️ 关于数据存储</div>
+          <div>· 数据保存在<strong>当前浏览器</strong>中，换手机或换浏览器后不会跟随</div>
+          <div>· Safari 和 Chrome 的数据<strong>互相独立</strong>，不会自动同步</div>
+          <div>· 登录账号后需手动点「上传到云端」备份，换设备后点「从云端恢复」还原</div>
+          <div style={{marginTop:4,color:"#c07010",fontWeight:800}}>建议定期下载备份文件，多一份保障</div>
+        </div>
+
+        {/* 云端同步 */}
         <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`}}>
           <div style={{fontSize:15,fontWeight:900,marginBottom:4,color:C.text}}>☁️ 云端同步</div>
           <div style={{fontSize:12,color:C.muted,marginBottom:14,lineHeight:1.6}}>
@@ -1336,70 +1378,178 @@ function App() {
           )}
         </div>
 
-        {/* 本地备份恢复 + 清除 */}
+        {/* 本地备份 */}
         <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`}}>
-          <div style={{fontSize:15,fontWeight:900,marginBottom:12,color:C.text}}>💾 本地备份与恢复</div>
-
-          {/* 数据量统计 */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
-            {[["演出",events.length,C.coral],["生日",birthdays.length,C.gold],["纪念日",anniversaries.length,C.teal],["团体标签",myGroups.length,"#c97de8"]].map(([label,count,color])=>(
-              <div key={label} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 6px",textAlign:"center"}}>
-                <div style={{fontSize:22,fontWeight:900,color}}>{count}</div>
-                <div style={{fontSize:11,color:C.muted,marginTop:2}}>{label}</div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{background:"#fffbee",border:"1.5px solid #f0d060",borderRadius:10,padding:"11px 14px",marginBottom:14,fontSize:12,color:"#7a6010",lineHeight:1.8}}>
-            <div style={{fontWeight:900,marginBottom:4}}>⚠️ 关于数据存储</div>
-            <div>· 数据保存在<strong>当前浏览器</strong>中，换手机或换浏览器后数据不会跟随</div>
-            <div>· 同一台手机，Safari 和 Chrome 的数据<strong>互相独立</strong>，不会自动同步</div>
-            <div>· 登录账号后需手动点<strong>「上传到云端」</strong>备份，换设备后点<strong>「从云端恢复」</strong>还原</div>
-            <div style={{marginTop:4,color:"#c07010",fontWeight:800}}>建议：定期下载备份文件，多一份保障</div>
-          </div>
-
+          <div style={{fontSize:15,fontWeight:900,marginBottom:12,color:C.text}}>📦 本地备份与恢复</div>
           <button onClick={()=>exportData(false)} style={{width:"100%",padding:"11px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#e8537a,#c0386a)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:10}}>
             📤 下载备份文件
           </button>
-          <label style={{display:"block",width:"100%",padding:"11px",borderRadius:10,border:`1.5px dashed ${C.accent}`,background:"#fff8fa",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer",textAlign:"center",boxSizing:"border-box",marginBottom:14}}>
+          <label style={{display:"block",width:"100%",padding:"11px",borderRadius:10,border:`1.5px dashed ${C.accent}`,background:"#fff8fa",color:C.accent,fontSize:14,fontWeight:700,cursor:"pointer",textAlign:"center",boxSizing:"border-box"}}>
             📥 选择备份文件恢复
             <input type="file" accept=".json" onChange={importData} style={{display:"none"}} />
           </label>
+        </div>
 
-          {/* 分割线 */}
-          <div style={{height:1,background:"#f0e8e0",margin:"4px 0 14px"}} />
-
-          {/* 清除数据 */}
-          <div style={{fontSize:13,fontWeight:900,color:"#c03040",marginBottom:6}}>🗑️ 清除本设备数据</div>
-          <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.6}}>
+        {/* 清除数据 */}
+        <div style={{background:"#fff",borderRadius:16,padding:20,border:"2px solid #ffcccc",boxShadow:"0 4px 0 0 #ffcccc"}}>
+          <div style={{fontSize:15,fontWeight:900,color:"#c03040",marginBottom:6}}>🗑️ 清除本设备数据</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:12,lineHeight:1.6}}>
             删除本浏览器中保存的全部记录，操作前建议先备份。
           </div>
-          <button
-            onClick={()=>setShowClearConfirm(true)}
+          <button onClick={()=>setShowClearConfirm(true)}
             style={{width:"100%",padding:"11px",borderRadius:10,border:"2px solid #e03040",background:"#fff5f5",color:"#e03040",fontSize:14,fontWeight:700,cursor:"pointer"}}>
             清除所有本地数据
           </button>
         </div>
+      </div>
 
-        {/* 使用指南 */}
-        <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`}}>
-          <div style={{fontSize:15,fontWeight:900,marginBottom:14,color:C.text}}>📖 使用指南</div>
-          {[
-            ["🎤 添加演出", "点击顶部「＋演出」按钮，填写场地/时间/团体等信息。支持在日历页直接点击日期后快速添加。"],
-            ["🎂 添加生日", "点击「＋生日」，填写成员姓名和生日日期，会自动计算每年倒计时。"],
-            ["💫 添加纪念日", "点击「＋纪念日」，支持按年/月/每百天重复提醒，可叠加多种循环方式。"],
-            ["📅 日历视图", "点击日期格子可查看当日演出和纪念日。点击右上角「演出统计」可查看年度数据。"],
-            ["💾 数据备份", "定期导出备份文件存到 iCloud 或本地，换设备时可完整恢复数据。"],
-          ].map(([t,d])=>(
-            <div key={t} style={{marginBottom:12,paddingBottom:12,borderBottom:`1px solid ${C.border}`}}>
-              <div style={{fontSize:13,fontWeight:900,color:C.text,marginBottom:3}}>{t}</div>
-              <div style={{fontSize:12,color:C.muted,lineHeight:1.65}}>{d}</div>
+      {/* 清除确认弹窗 */}
+      {showClearConfirm && (
+        <div style={{position:"fixed",inset:0,background:"#1a3a3888",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200}}
+          onClick={()=>setShowClearConfirm(false)}>
+          <div style={{background:"#faf7f2",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,padding:"24px 20px 48px",border:"2px solid #ffcccc",borderBottom:"none",boxShadow:"0 -4px 0 0 #ffcccc"}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:16,fontWeight:900,color:"#c03040"}}>⚠️ 确认清除所有数据</div>
+              <button onClick={()=>setShowClearConfirm(false)} style={{background:"#fff5f5",border:"2px solid #ffb8b8",color:"#e03040",fontSize:16,cursor:"pointer",width:32,height:32,borderRadius:8,fontWeight:900,lineHeight:1}}>✕</button>
             </div>
-          ))}
-          <div style={{marginTop:-4,fontSize:12,color:C.muted,lineHeight:1.65}}>
-            所有数据仅保存在本机浏览器中，清除浏览器缓存会丢失数据，请定期备份。
+            <div style={{background:"#fff5f5",border:"1.5px solid #ffb8b8",borderRadius:12,padding:"14px 16px",marginBottom:14,fontSize:13,color:"#c03040",lineHeight:1.7}}>
+              此操作将删除本浏览器中保存的<strong>全部演出、生日、纪念日和团体标签</strong>记录，且<strong>无法恢复</strong>。
+            </div>
+            <button onClick={doClearAll}
+              style={{width:"100%",padding:"13px",borderRadius:12,border:"none",background:"linear-gradient(135deg,#e03040,#b02030)",color:"#fff",fontSize:15,fontWeight:900,cursor:"pointer",marginBottom:10,boxShadow:"0 4px 0 0 #b0203050"}}>
+              确认清除全部数据
+            </button>
+            <button onClick={()=>setShowClearConfirm(false)}
+              style={{width:"100%",padding:"11px",borderRadius:12,border:"2px solid #ff6bab",background:"#fff8fa",color:"#ff6bab",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+              取消
+            </button>
           </div>
         </div>
+      )}
+    </div>
+  );
+
+  // ── 使用指南页面 ──
+  if (page === "guide") return (
+    <div className="cream-bg" style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:40}}>
+      <div style={{width:"100%",maxWidth:480,padding:"52px 20px 16px",display:"flex",alignItems:"center",gap:12}}>
+        <button onClick={()=>navigate("settings")} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:C.teal,padding:0,lineHeight:1}}>‹</button>
+        <div>
+          <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:24,fontWeight:900,color:C.text}}>📖 使用指南</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:2,fontWeight:700}}>功能介绍 · 操作说明</div>
+        </div>
+      </div>
+
+      <div style={{width:"100%",maxWidth:480,padding:"0 20px",display:"flex",flexDirection:"column",gap:12}}>
+
+        {/* 演出相关 */}
+        <div style={{fontSize:11,fontWeight:900,color:C.muted,letterSpacing:2,paddingLeft:4,marginTop:4}}>🎤 演出功能</div>
+        {[
+          ["📅","偶活日历",C.teal,
+           "以月历形式展示所有记录。日期格子上的彩色圆点分别代表演出（粉）、生日（橙）、纪念日（青）。点击任意日期可查看当天的全部演出、生日和纪念日详情，也可直接在当天快速添加新演出。"],
+          ["🎤","智能解析",C.accent,
+           "添加演出时，将微博/小红书的演出通知文字直接粘贴到输入框，点击「识别」按钮，系统自动提取演出名称、日期、时间、场馆、城市和团体信息，无需手动逐项填写。"],
+          ["📋","演出汇总",C.text,
+           "以时间线形式展示所有演出记录，支持按年份、月份、团体名称筛选。点击任意演出卡片可查看详情、编辑信息或删除记录。"],
+          ["📊","演出统计","#c97de8",
+           "在演出汇总页右上角点击图表图标进入。可按年份查看演出总场次、最常去城市和场馆、关注团体排行，并可导出精美图片分享到微博等平台。"],
+        ].map(([icon,title,color,desc])=>(
+          <div key={title} style={{background:"#fff",borderRadius:14,padding:"16px 18px",border:`2px solid ${C.border}`,boxShadow:`0 3px 0 0 ${C.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <div style={{width:6,height:20,borderRadius:3,background:color,flexShrink:0}}/>
+              <div style={{fontSize:14,fontWeight:900,color:C.text}}>{icon} {title}</div>
+            </div>
+            <div style={{fontSize:12,color:C.muted,lineHeight:1.75}}>{desc}</div>
+          </div>
+        ))}
+
+        {/* 纪念日相关 */}
+        <div style={{fontSize:11,fontWeight:900,color:C.muted,letterSpacing:2,paddingLeft:4,marginTop:8}}>💫 生日与纪念日</div>
+        {[
+          ["🎂","生日倒计时","#f0a830",
+           "点击「＋生日」添加成员生日和所属团体。系统每年自动计算倒计时天数和当前年龄，在纪念日页和日历中均会显示提醒。生日当天会特别标注庆祝提示。"],
+          ["💫","纪念日追踪",C.teal,
+           "点击「＋纪念日」记录初见、纪念日等重要日期，支持按「每年」「每月」「每百天」三种方式循环提醒，可同时叠加多种重复类型，自动计算下一个里程碑还有几天。"],
+        ].map(([icon,title,color,desc])=>(
+          <div key={title} style={{background:"#fff",borderRadius:14,padding:"16px 18px",border:`2px solid ${C.border}`,boxShadow:`0 3px 0 0 ${C.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <div style={{width:6,height:20,borderRadius:3,background:color,flexShrink:0}}/>
+              <div style={{fontSize:14,fontWeight:900,color:C.text}}>{icon} {title}</div>
+            </div>
+            <div style={{fontSize:12,color:C.muted,lineHeight:1.75}}>{desc}</div>
+          </div>
+        ))}
+
+        {/* 账号与数据 */}
+        <div style={{fontSize:11,fontWeight:900,color:C.muted,letterSpacing:2,paddingLeft:4,marginTop:8}}>👤 账号与数据</div>
+        {[
+          ["👤","我的账号",C.teal,
+           "在设置页顶部进入账号页面，可上传头像、设置昵称、修改密码。注册并登录账号后可开启云端同步功能，数据在不同设备和浏览器之间共享（目前需要科学上网）。"],
+          ["💾","数据备份","#e8537a",
+           "数据默认只保存在当前浏览器中，换手机或换浏览器后不会自动同步。建议定期在设置页「本地备份与恢复」下载备份文件存到本地或 iCloud。登录账号后也可手动上传云端，随时恢复。"],
+        ].map(([icon,title,color,desc])=>(
+          <div key={title} style={{background:"#fff",borderRadius:14,padding:"16px 18px",border:`2px solid ${C.border}`,boxShadow:`0 3px 0 0 ${C.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <div style={{width:6,height:20,borderRadius:3,background:color,flexShrink:0}}/>
+              <div style={{fontSize:14,fontWeight:900,color:C.text}}>{icon} {title}</div>
+            </div>
+            <div style={{fontSize:12,color:C.muted,lineHeight:1.75}}>{desc}</div>
+          </div>
+        ))}
+
+        <div style={{textAlign:"center",padding:"16px 0 8px",fontSize:11,color:"#b0c4c2",fontWeight:700,letterSpacing:2}}>
+          ✦ LiveRoku · 地下偶像演出日程管理 ✦
+        </div>
+      </div>
+    </div>
+  );
+
+  if (page === "settings") return (
+    <div className="cream-bg" style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",paddingBottom:80}}>
+
+      <div style={{width:"100%",maxWidth:480,padding:"52px 20px 16px",borderBottom:`2px solid ${C.border}`}}>
+        <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:24,fontWeight:900,color:C.text}}>⚙️ 我的设置</div>
+        <div style={{fontSize:12,color:C.muted,marginTop:4,fontWeight:700}}>账号 · 团体 · 数据 · 指南</div>
+      </div>
+
+      <div style={{width:"100%",maxWidth:480,padding:"16px 20px",display:"flex",flexDirection:"column",gap:12}}>
+
+        {/* 账号入口卡片 */}
+        <button onClick={()=>navigate("account")}
+          style={{width:"100%",background:"linear-gradient(135deg,#fff0f8,#f8f0ff)",borderRadius:16,padding:"16px 20px",border:`2px solid ${C.accent}55`,boxShadow:`0 4px 0 0 ${C.accent}33`,cursor:"pointer",display:"flex",alignItems:"center",gap:14,textAlign:"left"}}>
+          <div style={{width:48,height:48,borderRadius:"50%",background:authUser?"linear-gradient(135deg,#ff6bab,#c97de8)":"#f0ece4",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:"#fff",fontWeight:900,flexShrink:0,border:`2px solid ${authUser?C.accent:C.border}`}}>
+            {authUser ? (profileAvatar ? <img src={profileAvatar} style={{width:44,height:44,borderRadius:"50%",objectFit:"cover"}} /> : (profileNickname||authUser.email)[0].toUpperCase()) : "👤"}
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:900,color:C.text}}>
+              {authUser ? (profileNickname || authUser.email) : "登录 / 注册账号"}
+            </div>
+            <div style={{fontSize:12,color:C.muted,marginTop:2,fontWeight:700}}>
+              {authUser ? "✅ 已登录 · 点击管理账号资料" : "头像 · 昵称 · 云端同步"}
+            </div>
+          </div>
+          <div style={{fontSize:18,color:C.muted}}>›</div>
+        </button>
+
+        {/* 三个入口按钮 */}
+        {[
+          {icon:"🎤", label:"我关注的团体", sub:`已添加 ${myGroups.length} 个团体`, page:"groups", bg:"#fff0f8", border:C.accent},
+          {icon:"💾", label:"数据管理", sub:"备份 · 云端同步 · 清除数据", page:"datamanage", bg:"#e1f5ee", border:C.teal},
+          {icon:"📖", label:"使用指南", sub:"功能介绍 · 操作说明", page:"guide", bg:"#f0ecff", border:"#c97de8"},
+        ].map(({icon,label,sub,page:p,bg,border})=>(
+          <button key={p} onClick={()=>navigate(p)}
+            style={{width:"100%",background:"#fff",borderRadius:16,padding:"16px 20px",border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`,cursor:"pointer",display:"flex",alignItems:"center",gap:14,textAlign:"left"}}>
+            <div style={{width:44,height:44,borderRadius:12,background:bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>
+              {icon}
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:15,fontWeight:900,color:C.text}}>{label}</div>
+              <div style={{fontSize:12,color:C.muted,marginTop:2,fontWeight:700}}>{sub}</div>
+            </div>
+            <div style={{fontSize:18,color:C.muted}}>›</div>
+          </button>
+        ))}
 
         {/* 关于 */}
         <div style={{background:"#fff",borderRadius:16,padding:20,border:`2px solid ${C.border}`,boxShadow:`0 4px 0 0 ${C.border}`,textAlign:"center"}}>
@@ -1599,7 +1749,7 @@ function App() {
         .map(([lbl,fn,clr]) => (
           <button key={lbl} onClick={fn} style={{ background:"#fff", border:`2px solid ${clr}`, color:clr, borderRadius:20, padding:"6px 14px", fontSize:12, cursor:"pointer", whiteSpace:"nowrap", fontWeight:800, boxShadow:`0 2px 0 0 ${clr}44` }}>{lbl}</button>
         ))}
-        {page !== "annivs" && page !== "anniv-detail" && page !== "stats" && (
+        {page === "list" && (
           <button onClick={()=>navigate("stats",{from:"list"})} style={{ background:"#fff", border:"2px solid #c97de8", color:"#c97de8", borderRadius:20, padding:"6px 12px", fontSize:12, cursor:"pointer", fontWeight:800, boxShadow:"0 2px 0 0 #c97de844", display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap", marginLeft:"auto", flexShrink:0 }}>
             <svg width="14" height="14" viewBox="0 0 32 32"><path d="M16 2 A14 14 0 0 1 30 16 L16 16 Z" fill="#f0a830"/><path d="M30 16 A14 14 0 0 1 9 28 L16 16 Z" fill="#ff6bab"/><path d="M9 28 A14 14 0 0 1 2 12 L16 16 Z" fill="#c97de8"/><path d="M2 12 A14 14 0 0 1 16 2 L16 16 Z" fill="#5ecec8"/></svg>
             演出统计
@@ -1901,19 +2051,43 @@ function App() {
               const exportImg = () => {
                 const node = document.getElementById("stats-export-card");
                 if (!node) return;
-                // 先显示标题区，等 DOM 更新后再截图
                 setIsExporting(true);
+
                 const shoot = () => {
-                  if (window.html2canvas) {
-                    window.html2canvas(node, { backgroundColor:"#faf7f2", scale:2, useCORS:true, logging:false }).then(doExport);
+                  // 生成二维码
+                  const qrContainer = document.getElementById("qrcode-container");
+                  const doShoot = () => {
+                    if (window.html2canvas) {
+                      window.html2canvas(node, { backgroundColor:"#faf7f2", scale:2, useCORS:true, logging:false }).then(doExport);
+                    } else {
+                      const s2 = document.createElement("script");
+                      s2.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+                      s2.onload = () => window.html2canvas(node, { backgroundColor:"#faf7f2", scale:2, useCORS:true, logging:false }).then(doExport);
+                      document.head.appendChild(s2);
+                    }
+                  };
+                  const generateQR = () => {
+                    if (qrContainer) {
+                      qrContainer.innerHTML = "";
+                      new window.QRCode(qrContainer, {
+                        text: "https://liveroku.top",
+                        width: 56, height: 56,
+                        colorDark: "#1a3a38", colorLight: "#ffffff",
+                        correctLevel: window.QRCode.CorrectLevel.M
+                      });
+                    }
+                    setTimeout(doShoot, 120);
+                  };
+                  if (window.QRCode) {
+                    generateQR();
                   } else {
-                    const s2 = document.createElement("script");
-                    s2.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-                    s2.onload = () => window.html2canvas(node, { backgroundColor:"#faf7f2", scale:2, useCORS:true, logging:false }).then(doExport);
-                    document.head.appendChild(s2);
+                    const s = document.createElement("script");
+                    s.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
+                    s.onload = generateQR;
+                    document.head.appendChild(s);
                   }
                 };
-                setTimeout(shoot, 80); // 等待 React re-render
+                setTimeout(shoot, 80);
               };
 
               const shareStats = async () => {
@@ -2142,11 +2316,18 @@ function App() {
                     )}
 
                     {/* 页脚水印 */}
-                    <div style={{textAlign:"center",paddingTop:isExporting?14:8,paddingBottom:isExporting?10:4,
-                      borderTop:isExporting?`1.5px solid ${C.border}`:"none",marginTop:isExporting?8:0}}>
-                      <span style={{fontSize:isExporting?12:11,color:"#b0c4c2",fontWeight:700,letterSpacing:2}}>
-                        ✦ LiveRoku · 地下偶像演出日程管理 ✦
-                      </span>
+                    <div style={{paddingTop:isExporting?14:8,paddingBottom:isExporting?10:4,
+                      borderTop:isExporting?`1.5px solid ${C.border}`:"none",marginTop:isExporting?8:0,
+                      display:"flex",alignItems:"center",justifyContent:isExporting?"space-between":"center",gap:12}}>
+                      {isExporting && (
+                        <div id="qrcode-container" style={{width:64,height:64,flexShrink:0,borderRadius:8,overflow:"hidden",background:"#fff",padding:4}} />
+                      )}
+                      <div style={{textAlign:isExporting?"left":"center",flex:1}}>
+                        <div style={{fontSize:isExporting?13:11,color:"#b0c4c2",fontWeight:900,letterSpacing:isExporting?0:2,fontFamily:"'Nunito',sans-serif"}}>
+                          {isExporting ? <><span style={{color:"#ff6bab"}}>Live</span><span style={{color:"#5ecec8"}}>Roku</span></> : "✦ LiveRoku · 地下偶像演出日程管理 ✦"}
+                        </div>
+                        {isExporting && <div style={{fontSize:11,color:"#b0c4c2",fontWeight:700,marginTop:2}}>liveroku.top · 地下偶像演出日程管理</div>}
+                      </div>
                     </div>
                   </>)}
                 </div>
