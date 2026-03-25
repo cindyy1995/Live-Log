@@ -2479,28 +2479,73 @@ function App() {
                     </div>
                   </>)}
                 </div>
-              {/* 图片预览弹窗 —— 长按保存 */}
+              {/* 图片预览弹窗 —— 长按保存 / 分享 */}
               {exportPreview && (
-                <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",padding:"20px 16px",overflowY:"auto"}}
+                <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",padding:"20px 16px",overflowY:"auto"}}
                   onClick={()=>setExportPreview(null)}>
                   <div style={{width:"100%",maxWidth:400,marginTop:20}} onClick={e=>e.stopPropagation()}>
-                    {/* 关闭按钮 */}
+                    {/* 顶部：标题 + 关闭 */}
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                      <div style={{fontSize:14,fontWeight:900,color:"#fff"}}>📱 长按图片保存到相册</div>
+                      <div style={{fontSize:14,fontWeight:900,color:"#fff"}}>📊 演出统计图片</div>
                       <button onClick={()=>setExportPreview(null)}
-                        style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",width:32,height:32,borderRadius:"50%",fontSize:18,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                        ✕
-                      </button>
-                    </div>
-                    {/* 提示 */}
-                    <div style={{background:"rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#fff",lineHeight:1.7,textAlign:"center"}}>
-                      iOS：长按图片 → 添加到照片<br />安卓：长按图片 → 下载图片
+                        style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",width:32,height:32,borderRadius:"50%",fontSize:18,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                     </div>
                     {/* 图片 */}
-                    <img src={exportPreview} style={{width:"100%",borderRadius:12,display:"block",boxShadow:"0 4px 20px rgba(0,0,0,0.4)"}} />
-                    {/* 关闭按钮 */}
+                    <img src={exportPreview} style={{width:"100%",borderRadius:12,display:"block",boxShadow:"0 4px 20px rgba(0,0,0,0.4)",marginBottom:14}} />
+                    {/* 操作按钮区 */}
+                    <div style={{display:"flex",gap:10,marginBottom:10}}>
+                      {/* 分享按钮（系统分享，含图片） */}
+                      <button onClick={async()=>{
+                        try {
+                          const res = await fetch(exportPreview);
+                          const blob = await res.blob();
+                          const file = new File([blob], `LiveLog-演出统计-${titleStr}.png`, { type:"image/png" });
+                          if (navigator.canShare && navigator.canShare({ files:[file] })) {
+                            await navigator.share({
+                              files: [file],
+                              title: "LiveLog 演出统计",
+                              text: `我的${titleStr}演出统计 🎤 用 LiveLog 记录每一场偶活`,
+                            });
+                          } else if (navigator.share) {
+                            // 不支持文件分享，降级为分享链接
+                            await navigator.share({ title:"LiveLog 演出统计", text:`我的${titleStr}演出统计 🎤`, url:window.location.href });
+                          } else {
+                            // 再降级：直接下载
+                            const a = document.createElement("a");
+                            a.href = exportPreview;
+                            a.download = `LiveLog-演出统计-${titleStr}.png`;
+                            a.click();
+                          }
+                        } catch(e) {
+                          if (e.name !== "AbortError") {
+                            const a = document.createElement("a");
+                            a.href = exportPreview;
+                            a.download = `LiveLog-演出统计-${titleStr}.png`;
+                            a.click();
+                          }
+                        }
+                      }} style={{flex:1,padding:"12px 0",borderRadius:10,border:"none",background:"linear-gradient(135deg,#ff6bab,#e03888)",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                        分享图片
+                      </button>
+                      {/* 保存按钮（直接下载） */}
+                      <button onClick={()=>{
+                        const a = document.createElement("a");
+                        a.href = exportPreview;
+                        a.download = `LiveLog-演出统计-${titleStr}.png`;
+                        a.click();
+                      }} style={{flex:1,padding:"12px 0",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.35)",background:"rgba(255,255,255,0.12)",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        保存图片
+                      </button>
+                    </div>
+                    {/* 提示文字 */}
+                    <div style={{background:"rgba(255,255,255,0.1)",borderRadius:8,padding:"8px 12px",fontSize:11,color:"rgba(255,255,255,0.65)",lineHeight:1.7,textAlign:"center"}}>
+                      iOS：长按图片也可直接保存到相册
+                    </div>
+                    {/* 关闭 */}
                     <button onClick={()=>setExportPreview(null)}
-                      style={{width:"100%",marginTop:16,padding:"12px",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.4)",background:"rgba(255,255,255,0.15)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                      style={{width:"100%",marginTop:10,padding:"11px",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.25)",background:"transparent",color:"rgba(255,255,255,0.6)",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                       关闭
                     </button>
                   </div>
