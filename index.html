@@ -501,6 +501,92 @@ function App() {
   const [pwdMsg, setPwdMsg]                   = useState("");
   const [verifyMsg, setVerifyMsg]             = useState("");
 
+  // ── 广告系统 ──────────────────────────────────────────────
+  // 🔧 管理员开关：改为 true 即开启广告，false 则完全关闭
+  const ADS_ENABLED = false;
+
+  // 广告素材配置（上线广告时填入真实内容）
+  const AD_CONFIG = {
+    splash: {
+      // 开屏广告
+      enabled: false,           // 单独控制开屏
+      skipAfter: 5,             // 几秒后可跳过（0=立即可跳过）
+      items: [
+        // { img: "https://...", link: "https://...", title: "广告标题", bg: "#fff0f8" },
+      ],
+    },
+    savePopup: {
+      // 保存时弹窗广告
+      enabled: false,           // 单独控制保存弹窗
+      probability: 0.3,         // 触发概率（0~1，0.3=30%概率）
+      minInterval: 3,           // 最少触发几次保存才再弹（防止频繁）
+      items: [
+        // { img: "https://...", link: "https://...", title: "广告标题", bg: "#fff0f8" },
+      ],
+    },
+  };
+
+  const [isPro, setIsPro]                   = useState(() => loadLS("lvrk_pro", false));
+  const [splashAd, setSplashAd]             = useState(null);  // 当前开屏广告对象
+  const [splashAdVisible, setSplashAdVisible] = useState(false);
+  const [splashSkippable, setSplashSkippable] = useState(false);
+  const [saveAdVisible, setSaveAdVisible]   = useState(false);
+  const [saveAdItem, setSaveAdItem]         = useState(null);
+  const [saveCount, setSaveCount]           = useState(0);    // 累计保存次数
+  const [pendingSave, setPendingSave]       = useState(null); // 广告关闭后执行的保存回调
+
+  // 随机取一条广告
+  const pickAd = (items) => items.length ? items[Math.floor(Math.random() * items.length)] : null;
+
+  const [splashAdCountdown, setSplashAdCountdown] = useState(0);
+
+  // 显示开屏广告
+  const showSplashAd = () => {
+    if (!ADS_ENABLED || isPro || !AD_CONFIG.splash.enabled) return;
+    const ad = pickAd(AD_CONFIG.splash.items);
+    if (!ad) return;
+    setSplashAd(ad);
+    setSplashAdVisible(true);
+    const secs = AD_CONFIG.splash.skipAfter;
+    setSplashSkippable(secs === 0);
+    setSplashAdCountdown(secs);
+    if (secs > 0) {
+      let remaining = secs;
+      const timer = setInterval(() => {
+        remaining -= 1;
+        setSplashAdCountdown(remaining);
+        if (remaining <= 0) {
+          clearInterval(timer);
+          setSplashSkippable(true);
+        }
+      }, 1000);
+    }
+  };
+
+  // 保存前广告拦截：传入真正的保存函数
+  const withSaveAd = (saveFn) => {
+    if (!ADS_ENABLED || isPro || !AD_CONFIG.savePopup.enabled) {
+      saveFn();
+      return;
+    }
+    const newCount = saveCount + 1;
+    setSaveCount(newCount);
+    const shouldShow = newCount >= AD_CONFIG.savePopup.minInterval &&
+                       Math.random() < AD_CONFIG.savePopup.probability;
+    if (shouldShow) {
+      const ad = pickAd(AD_CONFIG.savePopup.items);
+      if (ad) {
+        setSaveCount(0); // 重置计数
+        setSaveAdItem(ad);
+        setSaveAdVisible(true);
+        setPendingSave(() => saveFn); // 保存回调
+        return;
+      }
+    }
+    saveFn();
+  };
+  // ─────────────────────────────────────────────────────────
+
   useEffect(() => {
     supa.auth.getSession().then(({ data: { session } }) => {
       setAuthUser(session?.user ?? null);
@@ -855,37 +941,27 @@ function App() {
   const navigate   = (p, opts={}) => { setPage(p); setModal(null); setEditItem(null); setEditType(null); setSelAnniv(null); resetParse(); if(p==="stats") setStatsPrevPage(opts.from||"list"); };
   const goAnnivDetail = (r, from) => { setSelAnniv({...r, _prevPage: from || "annivs"}); setPage("anniv-detail"); };
 
-  const saveEvent = () => {
-    // 去重：同日期+同场馆 视为重复
+  const saveEvent = () => withSaveAd(() => {
     const dup = events.find(e =>
       e.date && form.date && e.date === form.date &&
       e.venue && form.venue && e.venue.trim() === form.venue.trim()
     );
-    if (dup) {
-      setDupTarget(dup);
-      setModal("dup-confirm");
-      return;
-    }
+    if (dup) { setDupTarget(dup); setModal("dup-confirm"); return; }
     setEvents(p => [...p, { id: Date.now(), ...form }]);
     closeModal();
-  };
-  const saveBirthday = () => {
-    // 去重：同姓名 视为重复
+  });
+  const saveBirthday = () => withSaveAd(() => {
     const dup = birthdays.find(b =>
       b.name && form.name && b.name.trim() === form.name.trim()
     );
-    if (dup) {
-      setDupTarget(dup);
-      setModal("dup-confirm");
-      return;
-    }
+    if (dup) { setDupTarget(dup); setModal("dup-confirm"); return; }
     setBirthdays(p => [...p, { id: Date.now(), ...form }]);
     closeModal();
-  };
-  const saveAnniv = () => {
+  });
+  const saveAnniv = () => withSaveAd(() => {
     setAnnivs(p => [...p, { id: Date.now(), ...form }]);
     closeModal();
-  };
+  });
   const deleteItem = (item) => {
     if (item._t==="event") setEvents(p=>p.filter(e=>e.id!==item.id));
     else if (item._t==="birthday") setBirthdays(p=>p.filter(b=>b.id!==item.id));
@@ -921,6 +997,74 @@ function App() {
     </div>
   );
 
+  // ── 开屏广告遮罩 ──
+  const SplashAdOverlay = () => {
+    if (!splashAdVisible || !splashAd) return null;
+    return (
+      <div style={{position:"fixed",inset:0,zIndex:9999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.85)"}}>
+        {/* 广告内容 */}
+        <div style={{width:"100%",maxWidth:400,margin:"0 20px",borderRadius:20,overflow:"hidden",background:splashAd.bg||"#fff",boxShadow:"0 20px 60px #00000050"}}>
+          {splashAd.img && (
+            <a href={splashAd.link||"#"} target="_blank" rel="noopener noreferrer" onClick={()=>setSplashAdVisible(false)}>
+              <img src={splashAd.img} style={{width:"100%",display:"block"}} alt={splashAd.title||"广告"} />
+            </a>
+          )}
+          {splashAd.title && (
+            <div style={{padding:"12px 16px",fontSize:13,color:"#5a9994",fontWeight:700,textAlign:"center"}}>{splashAd.title}</div>
+          )}
+        </div>
+        {/* 广告标记 */}
+        <div style={{marginTop:12,fontSize:11,color:"rgba(255,255,255,0.4)",letterSpacing:1}}>广告</div>
+        {/* 跳过按钮 */}
+        <button onClick={()=>setSplashAdVisible(false)}
+          style={{marginTop:16,padding:"10px 32px",borderRadius:24,border:"1.5px solid rgba(255,255,255,0.3)",background:"rgba(255,255,255,0.12)",color:"#fff",fontSize:13,fontWeight:700,cursor:splashSkippable?"pointer":"default",opacity:splashSkippable?1:0.4}}>
+          {splashSkippable ? "跳过广告 ›" : `${splashAdCountdown}秒后可跳过`}
+        </button>
+        {/* Pro 引导 */}
+        <div style={{marginTop:10,fontSize:11,color:"rgba(255,255,255,0.5)"}}>
+          <button onClick={()=>setSplashAdVisible(false)} style={{background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:11,fontWeight:900,cursor:"pointer"}}>
+            升级 Pro · 永久去广告 →
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // ── 保存弹窗广告 ──
+  const SaveAdModal = () => {
+    if (!saveAdVisible || !saveAdItem) return null;
+    return (
+      <div style={{position:"fixed",inset:0,zIndex:9998,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.6)"}}
+        onClick={()=>{ setSaveAdVisible(false); if(pendingSave){pendingSave();setPendingSave(null);} }}>
+        <div style={{width:"100%",maxWidth:480,borderRadius:"20px 20px 0 0",background:"#faf7f2",border:"2px solid #e8e0d0",borderBottom:"none",boxShadow:"0 -4px 0 0 #e8e0d0",overflow:"hidden"}}
+          onClick={e=>e.stopPropagation()}>
+          {/* 顶部栏 */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px 0"}}>
+            <div style={{fontSize:11,color:"#b0a898",fontWeight:700,letterSpacing:1}}>广告</div>
+            <button onClick={()=>{ setSaveAdVisible(false); if(pendingSave){pendingSave();setPendingSave(null);} }}
+              style={{background:"#f0ece4",border:"none",color:"#5a9994",fontSize:13,cursor:"pointer",padding:"4px 12px",borderRadius:12,fontWeight:700}}>
+              关闭并继续保存
+            </button>
+          </div>
+          {/* 广告内容 */}
+          <a href={saveAdItem.link||"#"} target="_blank" rel="noopener noreferrer"
+            onClick={()=>{ setSaveAdVisible(false); if(pendingSave){pendingSave();setPendingSave(null);} }}
+            style={{display:"block",textDecoration:"none"}}>
+            {saveAdItem.img && <img src={saveAdItem.img} style={{width:"100%",display:"block",maxHeight:240,objectFit:"cover"}} alt={saveAdItem.title||"广告"} />}
+            {saveAdItem.title && <div style={{padding:"10px 16px 16px",fontSize:13,color:"#1a3a38",fontWeight:700}}>{saveAdItem.title}</div>}
+          </a>
+          {/* Pro 引导 */}
+          <div style={{padding:"8px 16px 24px",textAlign:"center",fontSize:11,color:"#b0a898"}}>
+            <span>不想看广告？</span>
+            <button style={{background:"none",border:"none",color:"#ff6bab",fontSize:11,fontWeight:900,cursor:"pointer",marginLeft:4}}>
+              升级 Pro 会员 →
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (page === "splash") return (
     <div className="grid-bg" style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px 60px",overflow:"hidden",position:"relative"}}>
 
@@ -950,7 +1094,7 @@ function App() {
         <div style={{fontFamily:"'Nunito','PingFang SC',sans-serif",fontSize:38,fontWeight:900,color:"#1a3a38",letterSpacing:-1,lineHeight:1}}>
           Live<span style={{color:"#ff6bab"}}>Roku</span>
         </div>
-        <div style={{fontSize:12,color:"#5a9994",marginTop:8,letterSpacing:4,fontWeight:700}}>不当地偶厨 只做现场派</div>
+        <div style={{fontSize:12,color:"#5a9994",marginTop:8,letterSpacing:4,fontWeight:700}}>地下偶像演出日程管理</div>
       </div>
 
       {/* 导航按钮 */}
@@ -961,7 +1105,7 @@ function App() {
           {icon:"💫",label:"纪念日汇总",sub:"生日 · 周年 · 倒数日",target:"annivs",  bg:"#fff",border:"#ff6bab", dot:"#ff6bab"},
           {icon:"⚙️",label:"我的设置",  sub:"团体管理 · 备份与恢复",target:"settings",bg:"#fff",border:"#c97de8", dot:"#c97de8"},
         ].map(({icon,label,sub,target,border,dot})=>(
-          <button key={target} className="nav-btn" onClick={()=>navigate(target)}
+          <button key={target} className="nav-btn" onClick={()=>{ navigate(target); showSplashAd(); }}
             style={{width:"100%",padding:"14px 18px",borderRadius:16,border:`2px solid ${border}`,background:"rgba(255,255,255,0.95)",boxShadow:`0 4px 0 0 ${border}55`,cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
             <div style={{width:42,height:42,borderRadius:12,background:`${border}22`,border:`2px solid ${border}66`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{icon}</div>
             <div style={{textAlign:"left",flex:1}}>
@@ -1559,7 +1703,7 @@ function App() {
           </div>
           <div style={{fontSize:12,color:C.muted,marginBottom:10,fontWeight:700}}>地下偶像演出日程管理 · v1.0</div>
           <div style={{fontSize:11,color:C.muted,lineHeight:1.8}}>
-            不当地偶厨，只做现场派 🎤
+            不当偶像宅，只做现场派 🎤
           </div>
           <div style={{marginTop:10,fontSize:12,color:C.teal,fontWeight:700}}>
             📮 liveroku@163.com
@@ -1711,6 +1855,10 @@ function App() {
   // ── 主界面（日历 + 列表）──
   return (
     <div className="cream-bg" style={{ minHeight:"100vh", color:C.text, display:"flex", flexDirection:"column", alignItems:"center", paddingBottom:80 }}>
+
+      {/* 广告组件 */}
+      <SplashAdOverlay />
+      <SaveAdModal />
 
       {/* Header */}
       <div style={{ width:"100%", maxWidth:480, padding:"52px 20px 8px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
@@ -2093,7 +2241,7 @@ function App() {
               const shareStats = async () => {
                 const name = profileNickname || (authUser ? authUser.email.split("@")[0] : "");
                 const yearLabel = statsYear === "all" ? "全部" : statsYear + "年";
-                const text = `${name ? name + "的" : "我的"}${yearLabel}演出记录 | 用LiveRoku记录每一场偶活 🎤✨`;
+                const text = `${name ? name + "的" : "我的"}${yearLabel}演出记录 | 用LiveRoku记录每一场偶活 🎤✨ @LiveRoku现场录`;
                 const url = window.location.href;
 
                 if (navigator.share) {
