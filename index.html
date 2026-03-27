@@ -134,8 +134,8 @@ function regexParseEvent(rawText) {
   const lines = text.split("\n");
   const skipLineRe = /特典|握手|签名|cheki|チェキ|上架|下架|购票|开售|限购|预售|票务|微店|星空间/i;
 
-  // 1. 演出/入场/START 明确标注行
-  const showTimeLine = text.match(/(?:演出|SHOW|开演|入场|START)\s*[:|｜]?\s*(\d{1,2}):(\d{2})\s*[~～\-—]\s*(\d{1,2}):(\d{2})/i);
+  // 1. 演出/入场/START 明确标注行 —— 支持 emoji 前缀（如 🪩演出时间：）
+  const showTimeLine = text.match(/(?:[\u{1F300}-\u{1FFFF}\u2600-\u27BF]\s*)?(?:演出时间|演出|SHOW|开演|入场|START)\s*[:|｜:：]?\s*(\d{1,2}):(\d{2})\s*[~～\-—]\s*(\d{1,2}):(\d{2})/iu);
   if (showTimeLine) {
     time    = `${String(showTimeLine[1]).padStart(2,"0")}:${showTimeLine[2]}`;
     endTime = `${String(showTimeLine[3]).padStart(2,"0")}:${showTimeLine[4]}`;
@@ -2497,6 +2497,9 @@ function App() {
                       {/* 分享按钮（系统分享，含图片） */}
                       <button onClick={async()=>{
                         try {
+                          const name = profileNickname || (authUser ? authUser.email.split("@")[0] : "");
+                          const shareText = `${name ? name + "的" : "我的"}${titleStr}全部演出记录 | 用LiveRoku记录每一场偶活 🎤✨ @LiveRoku现场录`;
+                          const shareUrl = "https://liveroku.top/#/stats";
                           const res = await fetch(exportPreview);
                           const blob = await res.blob();
                           const file = new File([blob], `LiveLog-演出统计-${titleStr}.png`, { type:"image/png" });
@@ -2504,13 +2507,11 @@ function App() {
                             await navigator.share({
                               files: [file],
                               title: "LiveLog 演出统计",
-                              text: `我的${titleStr}演出统计 🎤 用 LiveLog 记录每一场偶活`,
+                              text: `${shareText}\n${shareUrl}`,
                             });
                           } else if (navigator.share) {
-                            // 不支持文件分享，降级为分享链接
-                            await navigator.share({ title:"LiveLog 演出统计", text:`我的${titleStr}演出统计 🎤`, url:window.location.href });
+                            await navigator.share({ title:"LiveLog 演出统计", text:shareText, url:shareUrl });
                           } else {
-                            // 再降级：直接下载
                             const a = document.createElement("a");
                             a.href = exportPreview;
                             a.download = `LiveLog-演出统计-${titleStr}.png`;
