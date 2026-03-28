@@ -642,9 +642,16 @@ function App() {
       if (d.birthdays)     setBirthdays(p    => merge(p, d.birthdays));
       if (d.anniversaries) setAnnivs(p       => merge(p, d.anniversaries));
       if (d.myGroups?.length) setMyGroups(p  => [...new Set([...p, ...d.myGroups])]);
-      if (d.images) Object.entries(d.images).forEach(([id, b64]) => {
-        try { localStorage.setItem(`ic_anniv_img_${id}`, b64); } catch(e) {}
-      });
+      if (d.images) {
+        let imgFailed = 0;
+        Object.entries(d.images).forEach(([id, b64]) => {
+          try { localStorage.setItem(`ic_anniv_img_${id}`, b64); }
+          catch(e) { imgFailed++; }
+        });
+        if (imgFailed > 0) {
+          setTimeout(() => alert(`⚠️ 有 ${imgFailed} 张封面图片因存储空间不足未能恢复。`), 300);
+        }
+      }
       setCloudMsg("✅ 已从云端恢复数据");
     } catch (e) { setCloudMsg("❌ " + e.message); }
     setCloudSyncing(false);
@@ -883,9 +890,14 @@ function App() {
           setMyGroups(p => [...new Set([...p, ...data.myGroups])]);
         // 恢复封面图片（base64）
         if (data.images && typeof data.images === "object") {
+          let imgFailed = 0;
           Object.entries(data.images).forEach(([id, b64]) => {
-            try { localStorage.setItem(`ic_anniv_img_${id}`, b64); } catch(e) {}
+            try { localStorage.setItem(`ic_anniv_img_${id}`, b64); }
+            catch(e) { imgFailed++; }
           });
+          if (imgFailed > 0) {
+            setTimeout(() => alert(`⚠️ 有 ${imgFailed} 张封面图片因存储空间不足未能恢复。\n\n建议：进入纪念日详情页重新上传，或清除其他封面图片释放空间。`), 300);
+          }
         }
         setModal("import-done");
         setImportCount({
@@ -2498,7 +2510,8 @@ function App() {
                       <button onClick={async()=>{
                         try {
                           const name = profileNickname || (authUser ? authUser.email.split("@")[0] : "");
-                          const shareText = `${name ? name + "的" : "我的"}${titleStr}全部演出记录 | 用LiveRoku记录每一场偶活 🎤✨ @LiveRoku现场录`;
+                          const yearLabel = statsYear === "all" ? "" : titleStr;
+                          const shareText = `${name ? name + "的" : "我的"}${yearLabel ? yearLabel + "演出记录" : "全部演出记录"} | 用LiveRoku记录每一场偶活 🎤✨ @LiveRoku现场录`;
                           const shareUrl = "https://liveroku.top/#/stats";
                           const res = await fetch(exportPreview);
                           const blob = await res.blob();
