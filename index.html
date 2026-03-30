@@ -2506,24 +2506,21 @@ function App() {
                     <img src={exportPreview} style={{width:"100%",borderRadius:12,display:"block",boxShadow:"0 4px 20px rgba(0,0,0,0.4)",marginBottom:14}} />
                     {/* 操作按钮区 */}
                     <div style={{display:"flex",gap:10,marginBottom:10}}>
-                      {/* 分享按钮（系统分享，含图片） */}
+                      {/* 分享按钮：图片+自动复制文案到剪贴板 */}
                       <button onClick={async()=>{
+                        const name = profileNickname || (authUser ? authUser.email.split("@")[0] : "");
+                        const shareText = `${name ? name + "的" : "我的"}${titleStr}全部演出记录 | 用LiveRoku记录每一场偶活 🎤✨ @LiveRoku现场录 https://liveroku.top/#/stats`;
+                        // 先把文案复制到剪贴板
+                        try { await navigator.clipboard.writeText(shareText); } catch(e) {}
+                        // 再调起系统分享（带图片）
                         try {
-                          const name = profileNickname || (authUser ? authUser.email.split("@")[0] : "");
-                          const yearLabel = statsYear === "all" ? "" : titleStr;
-                          const shareText = `${name ? name + "的" : "我的"}${yearLabel ? yearLabel + "演出记录" : "全部演出记录"} | 用LiveRoku记录每一场偶活 🎤✨ @LiveRoku现场录`;
-                          const shareUrl = "https://liveroku.top/#/stats";
                           const res = await fetch(exportPreview);
                           const blob = await res.blob();
                           const file = new File([blob], `LiveLog-演出统计-${titleStr}.png`, { type:"image/png" });
                           if (navigator.canShare && navigator.canShare({ files:[file] })) {
-                            await navigator.share({
-                              files: [file],
-                              title: "LiveLog 演出统计",
-                              text: `${shareText}\n${shareUrl}`,
-                            });
+                            await navigator.share({ files:[file], title:"LiveLog 演出统计" });
                           } else if (navigator.share) {
-                            await navigator.share({ title:"LiveLog 演出统计", text:shareText, url:shareUrl });
+                            await navigator.share({ title:"LiveLog 演出统计", text:shareText });
                           } else {
                             const a = document.createElement("a");
                             a.href = exportPreview;
@@ -2538,9 +2535,9 @@ function App() {
                             a.click();
                           }
                         }
-                      }} style={{flex:1,padding:"12px 0",borderRadius:10,border:"none",background:"linear-gradient(135deg,#ff6bab,#e03888)",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                      }} style={{flex:2,padding:"12px 0",borderRadius:10,border:"none",background:"linear-gradient(135deg,#ff6bab,#e03888)",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-                        分享图片
+                        分享图片（文案已复制）
                       </button>
                       {/* 保存按钮（直接下载） */}
                       <button onClick={()=>{
@@ -2550,12 +2547,12 @@ function App() {
                         a.click();
                       }} style={{flex:1,padding:"12px 0",borderRadius:10,border:"1.5px solid rgba(255,255,255,0.35)",background:"rgba(255,255,255,0.12)",color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        保存图片
+                        保存
                       </button>
                     </div>
                     {/* 提示文字 */}
                     <div style={{background:"rgba(255,255,255,0.1)",borderRadius:8,padding:"8px 12px",fontSize:11,color:"rgba(255,255,255,0.65)",lineHeight:1.7,textAlign:"center"}}>
-                      iOS：长按图片也可直接保存到相册
+                      点「分享图片」会同时将微博文案复制到剪贴板<br/>发微博时直接粘贴即可 📋
                     </div>
                     {/* 关闭 */}
                     <button onClick={()=>setExportPreview(null)}
