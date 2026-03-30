@@ -2509,7 +2509,7 @@ function App() {
                       {/* 分享按钮：图片+自动复制文案到剪贴板 */}
                       <button onClick={async()=>{
                         const name = profileNickname || (authUser ? authUser.email.split("@")[0] : "");
-                        const shareText = `${name ? name + "的" : "我的"}${titleStr}全部演出记录 | 用LiveRoku记录每一场偶活 🎤✨ @LiveRoku现场录 https://liveroku.top/#/stats`;
+                        const shareText = `${name ? name + "的" : "我的"}${titleStr === "全部时间" ? "" : titleStr}演出记录 | 用LiveRoku记录每一场偶活 🎤✨ @LiveRoku现场录 https://liveroku.top/#/stats`;
                         // 先把文案复制到剪贴板
                         try { await navigator.clipboard.writeText(shareText); } catch(e) {}
                         // 再调起系统分享（带图片）
